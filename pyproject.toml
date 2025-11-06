@@ -1,0 +1,202 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hierarchical-agents"
+version = "0.1.0"
+description = "A hierarchical multi-agent system with supervisor-worker architecture"
+authors = [
+    {name = "Hierarchical Agents Team", email = "team@hierarchical-agents.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # Core LangGraph and LangChain
+    "langgraph>=0.2.0",
+    "langchain>=0.2.0",
+    "langchain-openai>=0.1.0",
+    "langchain-anthropic>=0.1.0",
+    "langchain-aws>=0.1.0",
+    
+    # Web framework and API
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "httpx>=0.25.0",
+    
+    # Data validation and serialization
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    
+    # Async and concurrency
+    "asyncio-mqtt>=0.13.0",
+    "aiofiles>=23.2.1",
+    
+    # State management and caching
+    "redis>=5.0.0",
+    "aioredis>=2.0.1",
+    
+    # Security and encryption
+    "cryptography>=41.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    
+    # AWS integration
+    "boto3>=1.34.0",
+    "botocore>=1.34.0",
+    
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "structlog>=23.2.0",
+    "typer>=0.9.0",
+    "rich>=13.7.0",
+    
+    # Tools and integrations
+    "tavily-python>=0.3.0",
+    "beautifulsoup4>=4.12.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "httpx>=0.25.0",  # For testing FastAPI
+    
+    # Code quality
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+    "pre-commit>=3.6.0",
+    
+    # Documentation
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.4.0",
+    "mkdocstrings[python]>=0.24.0",
+]
+
+monitoring = [
+    # Monitoring and metrics
+    "prometheus-client>=0.19.0",
+    "grafana-api>=1.0.3",
+    "opentelemetry-api>=1.21.0",
+    "opentelemetry-sdk>=1.21.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/hierarchical-agents/hierarchical-agents"
+Documentation = "https://hierarchical-agents.readthedocs.io"
+Repository = "https://github.com/hierarchical-agents/hierarchical-agents"
+Issues = "https://github.com/hierarchical-agents/hierarchical-agents/issues"
+
+[project.scripts]
+hierarchical-agents = "hierarchical_agents.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hierarchical_agents = ["py.typed"]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["hierarchical_agents"]
+
+# mypy configuration
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tavily.*",
+    "redis.*",
+    "boto3.*",
+    "botocore.*",
+]
+ignore_missing_imports = true
+
+# pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/hierarchical_agents"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

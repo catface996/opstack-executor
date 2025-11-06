@@ -1,0 +1,103 @@
+{
+  "team_name": "ai_medical_research_team",
+  "description": "AI医疗应用研究分析团队",
+  "top_supervisor_config": {
+    "llm_config": {
+      "provider": "openai",
+      "model": "gpt-4o",
+      "temperature": 0.3,
+      "max_tokens": 1000
+    },
+    "system_prompt": "你是一个顶级监督者，负责协调和管理整个分层团队的执行。你需要根据任务需求、团队能力和依赖关系，智能地选择最适合的子团队执行任务。请基于任务特点和团队专长做出最优决策。",
+    "user_prompt": "请协调整个分层团队执行研究分析任务。根据子团队的专长和依赖关系，选择最适合的子团队开始执行。只返回团队名称。",
+    "max_iterations": 10
+  },
+  "sub_teams": [
+    {
+      "id": "team_research_001",
+      "name": "研究团队",
+      "description": "负责信息收集和研究",
+      "supervisor_config": {
+        "llm_config": {
+          "provider": "openai",
+          "model": "gpt-4o",
+          "temperature": 0.3
+        },
+        "system_prompt": "你是研究团队的监督者，负责协调信息搜索和数据分析工作。你需要根据任务特点和团队成员的专长，智能地选择最适合的成员执行任务。请基于成员能力和任务需求做出最优分配。",
+        "user_prompt": "请协调研究团队执行信息收集和分析工作。根据团队成员的专长，选择最适合的成员开始执行。只返回成员名称。",
+        "max_iterations": 8
+      },
+      "agent_configs": [
+        {
+          "agent_id": "agent_search_001",
+          "agent_name": "医疗文献搜索专家",
+          "llm_config": {
+            "provider": "openrouter",
+            "model": "anthropic/claude-3-sonnet",
+            "base_url": "https://openrouter.ai/api/v1",
+            "temperature": 0.3,
+            "max_tokens": 2000
+          },
+          "system_prompt": "你是一个专业的信息搜索专家，擅长使用各种搜索工具收集准确、相关的信息。请始终提供可靠的信息源，并对搜索结果进行初步筛选。",
+          "user_prompt": "请搜索人工智能在医疗领域的最新应用研究。重点收集深度学习在医学影像、自然语言处理在病历分析等领域的研究论文和技术进展。确保信息来源可靠，并进行初步筛选。",
+          "tools": ["tavily_search", "web_scraper"],
+          "max_iterations": 5
+        },
+        {
+          "agent_id": "agent_analyze_001",
+          "agent_name": "趋势分析师",
+          "llm_config": {
+            "provider": "aws_bedrock",
+            "model": "anthropic.claude-3-sonnet-20240229-v1:0",
+            "region": "us-east-1",
+            "temperature": 0.5,
+            "max_tokens": 3000
+          },
+          "system_prompt": "你是一个数据分析专家，能够从复杂的信息中提取关键洞察，识别趋势和模式。请提供结构化的分析结果。",
+          "user_prompt": "请分析AI医疗应用的技术趋势、挑战和机遇。基于收集到的研究资料，识别关键技术发展模式，分析数据隐私、算法可解释性、监管合规等挑战，并提供结构化的分析结果。",
+          "tools": ["data_processor"],
+          "max_iterations": 3
+        }
+      ]
+    },
+    {
+      "id": "team_writing_001",
+      "name": "写作团队",
+      "description": "负责文档编写和整理",
+      "supervisor_config": {
+        "llm_config": {
+          "provider": "openai",
+          "model": "gpt-4o",
+          "temperature": 0.5
+        },
+        "system_prompt": "你是写作团队的监督者，负责协调文档撰写工作。你需要根据写作任务的类型和复杂度，智能地选择最适合的写作专家。请确保任务分配能够产出高质量、结构清晰的文档。",
+        "user_prompt": "请协调写作团队执行文档撰写工作。根据团队成员的专长和输入材料，选择最适合的成员开始执行。只返回成员名称。",
+        "max_iterations": 6
+      },
+      "agent_configs": [
+        {
+          "agent_id": "agent_write_001",
+          "agent_name": "技术报告撰写专家",
+          "llm_config": {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "temperature": 0.7,
+            "max_tokens": 4000
+          },
+          "system_prompt": "你是一个专业的技术写作专家，擅长将复杂的技术信息转化为清晰、易懂的文档。请确保内容结构合理、逻辑清晰。",
+          "user_prompt": "请基于研究团队提供的材料，撰写一份关于人工智能在医疗领域应用的详细分析报告。报告应包含技术背景、应用案例、挑战分析和未来展望四个主要部分，确保内容结构合理、逻辑清晰。",
+          "tools": ["document_writer", "editor"],
+          "max_iterations": 5
+        }
+      ]
+    }
+  ],
+  "dependencies": {
+    "team_writing_001": ["team_research_001"]
+  },
+  "global_config": {
+    "max_execution_time": 3600,
+    "enable_streaming": true,
+    "output_format": "detailed"
+  }
+}

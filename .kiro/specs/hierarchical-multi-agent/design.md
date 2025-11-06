@@ -377,23 +377,13 @@ class LLMConfig:
     """LLM配置"""
     provider: str                    # 提供商：openai, openrouter, aws_bedrock
     model: str                       # 模型名称
-    api_key_ref: str                 # 密钥引用（不直接存储密钥）
     base_url: Optional[str] = None   # 自定义API端点
     region: Optional[str] = None     # AWS区域（仅Bedrock需要）
     temperature: float = 0.7
     max_tokens: Optional[int] = None
     timeout: int = 30
 
-@dataclass
-class KeyConfig:
-    """密钥配置"""
-    key_id: str                      # 密钥ID
-    provider: str                    # 提供商
-    encrypted_key: str               # 加密后的密钥
-    created_at: datetime
-    last_used: Optional[datetime] = None
-    usage_count: int = 0
-    is_active: bool = True
+
 
 @dataclass
 class ExecutionContext:
@@ -654,23 +644,42 @@ class ErrorHandler:
 - **真实场景测试**：模拟实际业务场景的综合测试
 - **用户接受度测试**：API接口和输出格式的用户验证
 
-## 密钥管理安全设计
+## 环境变量密钥管理设计
 
-### 安全原则
-1. **密钥加密存储**：所有API密钥使用AES-256加密后存储
-2. **密钥引用机制**：配置中只存储密钥引用，不存储实际密钥
-3. **访问控制**：密钥管理需要管理员权限
-4. **审计日志**：记录所有密钥操作和使用情况
-5. **密钥轮换**：支持定期密钥轮换
+### 设计原则
+1. **环境变量存储**：所有API密钥通过环境变量提供，简单安全
+2. **标准命名约定**：使用标准的环境变量命名（OPENAI_API_KEY等）
+3. **运行时读取**：系统启动时从环境变量读取密钥，无需持久化存储
+4. **配置简化**：配置文件中不包含密钥信息，只包含提供商和模型配置
+5. **开发友好**：支持.env文件进行本地开发配置
 
-### 多提供商支持
+### 环境变量命名约定
+
+#### OpenAI
+```bash
+OPENAI_API_KEY=sk-your-openai-api-key-here
+```
+
+#### OpenRouter  
+```bash
+OPENROUTER_API_KEY=sk-or-your-openrouter-api-key-here
+```
+
+#### AWS Bedrock
+```bash
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+AWS_SESSION_TOKEN=your-aws-session-token  # 可选
+AWS_DEFAULT_REGION=us-east-1
+```
+
+### 简化的LLM配置
 
 #### OpenAI配置
 ```python
 openai_config = LLMConfig(
     provider="openai",
     model="gpt-4o",
-    api_key_ref="openai_key_001",
     temperature=0.7,
     max_tokens=2000
 )
@@ -679,9 +688,8 @@ openai_config = LLMConfig(
 #### OpenRouter配置
 ```python
 openrouter_config = LLMConfig(
-    provider="openrouter",
+    provider="openrouter", 
     model="anthropic/claude-3-sonnet",
-    api_key_ref="openrouter_key_001",
     base_url="https://openrouter.ai/api/v1",
     temperature=0.5
 )
@@ -692,31 +700,59 @@ openrouter_config = LLMConfig(
 bedrock_config = LLMConfig(
     provider="aws_bedrock",
     model="anthropic.claude-3-sonnet-20240229-v1:0",
-    api_key_ref="aws_bedrock_key_001",
     region="us-east-1",
     temperature=0.3
 )
 ```
 
-### 密钥管理实现
+### 环境变量密钥管理器实现
 ```python
-class SecureKeyManager:
-    def __init__(self, encryption_key: bytes):
-        self.cipher = Fernet(encryption_key)
-        
-    def store_key(self, provider: str, api_key: str) -> str:
-        """加密存储密钥，返回密钥引用"""
-        encrypted_key = self.cipher.encrypt(api_key.encode())
-        key_id = f"{provider}_key_{uuid.uuid4().hex[:8]}"
-        
-        # 存储到安全存储（如数据库或密钥管理服务）
-        self._save_encrypted_key(key_id, encrypted_key, provider)
-        return key_id
+class EnvironmentKeyManager:
+    """从环境变量读取API密钥的简化管理器"""
     
-    def get_key(self, key_ref: str) -> str:
-        """根据引用获取解密后的密钥"""
-        encrypted_key = self._load_encrypted_key(key_ref)
-        return self.cipher.decrypt(encrypted_key).decode()
+    def __init__(self):
+        self.key_mappings = {
+            "openai": "OPENAI_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY", 
+            "aws_bedrock": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+        }
+    
+    def get_key(self, provider: str) -> str:
+        """从环境变量获取指定提供商的API密钥"""
+        if provider not in self.key_mappings:
+            raise ValueError(f"Unsupported provider: {provider}")
+        
+        env_var = self.key_mappings[provider]
+        
+        if provider == "aws_bedrock":
+            # AWS需要多个环境变量
+            access_key = os.getenv("AWS_ACCESS_KEY_ID")
+            secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+            session_token = os.getenv("AWS_SESSION_TOKEN")
+            
+            if not access_key or not secret_key:
+                raise ValueError("AWS credentials not found in environment variables")
+            
+            if session_token:
+                return f"{access_key}:{secret_key}:{session_token}"
+            return f"{access_key}:{secret_key}"
+        else:
+            # 其他提供商使用单个环境变量
+            api_key = os.getenv(env_var)
+            if not api_key:
+                raise ValueError(f"API key not found in environment variable: {env_var}")
+            return api_key
+    
+    def validate_key_format(self, provider: str, api_key: str) -> bool:
+        """验证API密钥格式"""
+        if provider == "openai":
+            return api_key.startswith("sk-") and len(api_key) > 20
+        elif provider == "openrouter":
+            return api_key.startswith("sk-or-") and len(api_key) > 20
+        elif provider == "aws_bedrock":
+            parts = api_key.split(":")
+            return len(parts) >= 2 and len(parts[0]) >= 16
+        return len(api_key.strip()) > 0
 ```
 
 ## 技术选型
@@ -731,7 +767,7 @@ class SecureKeyManager:
 - **Redis**：状态缓存和会话管理
 - **FastAPI**：REST API接口
 - **WebSocket**：实时事件推送
-- **cryptography**：密钥加密存储
+- **python-dotenv**：环境变量管理
 - **boto3**：AWS Bedrock集成
 
 ### 可选扩展
@@ -756,7 +792,6 @@ class SecureKeyManager:
     "llm_config": {
       "provider": "openai",
       "model": "gpt-4o",
-      "api_key_ref": "openai_key_001",
       "temperature": 0.3,
       "max_tokens": 1000
     },
@@ -773,7 +808,6 @@ class SecureKeyManager:
         "llm_config": {
           "provider": "openai",
           "model": "gpt-4o",
-          "api_key_ref": "openai_key_001",
           "temperature": 0.3
         },
         "system_prompt": "你是研究团队的监督者，负责协调信息搜索和数据分析工作。你需要根据任务特点和团队成员的专长，智能地选择最适合的成员执行任务。请基于成员能力和任务需求做出最优分配。",
@@ -787,7 +821,6 @@ class SecureKeyManager:
           "llm_config": {
             "provider": "openrouter",
             "model": "anthropic/claude-3-sonnet",
-            "api_key_ref": "openrouter_key_001",
             "base_url": "https://openrouter.ai/api/v1",
             "temperature": 0.3,
             "max_tokens": 2000
@@ -803,7 +836,6 @@ class SecureKeyManager:
           "llm_config": {
             "provider": "aws_bedrock",
             "model": "anthropic.claude-3-sonnet-20240229-v1:0",
-            "api_key_ref": "aws_bedrock_key_001",
             "region": "us-east-1",
             "temperature": 0.5,
             "max_tokens": 3000
@@ -823,7 +855,6 @@ class SecureKeyManager:
         "llm_config": {
           "provider": "openai",
           "model": "gpt-4o",
-          "api_key_ref": "openai_key_001",
           "temperature": 0.5
         },
         "system_prompt": "你是写作团队的监督者，负责协调文档撰写工作。你需要根据写作任务的类型和复杂度，智能地选择最适合的写作专家。请确保任务分配能够产出高质量、结构清晰的文档。",
@@ -837,7 +868,6 @@ class SecureKeyManager:
           "llm_config": {
             "provider": "openai",
             "model": "gpt-4o",
-            "api_key_ref": "openai_key_002",
             "temperature": 0.7,
             "max_tokens": 4000
           },
@@ -1186,72 +1216,38 @@ data: {"timestamp": "2024-01-15T11:05:00Z", "source_type": "system", "execution_
 - `failed`: 执行失败
 - `cancelled`: 已取消
 
-### 6. 密钥管理接口
+### 6. 环境变量配置说明
 
-#### POST /api/v1/keys
-添加LLM API密钥
+系统通过环境变量读取API密钥，无需通过API管理密钥。
 
-**请求体：**
-```json
-{
-  "provider": "openai",
-  "api_key": "sk-xxx...",
-  "description": "OpenAI GPT-4 密钥",
-  "tags": ["production", "gpt-4"]
-}
+#### 环境变量设置示例
+
+**开发环境 (.env文件)：**
+```bash
+# OpenAI
+OPENAI_API_KEY=sk-your-openai-api-key-here
+
+# OpenRouter
+OPENROUTER_API_KEY=sk-or-your-openrouter-api-key-here
+
+# AWS Bedrock
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+AWS_DEFAULT_REGION=us-east-1
+
+# 可选：AWS会话令牌
+AWS_SESSION_TOKEN=your-aws-session-token
 ```
 
-**响应：**
-```json
-{
-  "success": true,
-  "code": "KEY_ADDED",
-  "data": {
-    "key_id": "openai_key_001",
-    "provider": "openai",
-    "description": "OpenAI GPT-4 密钥",
-    "created_at": "2024-01-15T10:30:00Z",
-    "status": "active"
-  },
-  "message": "密钥添加成功"
-}
-```
+**生产环境：**
+```bash
+# 通过系统环境变量或容器环境变量设置
+export OPENAI_API_KEY="sk-your-openai-api-key-here"
+export OPENROUTER_API_KEY="sk-or-your-openrouter-api-key-here"
+export AWS_ACCESS_KEY_ID="your-aws-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-aws-secret-access-key"
+export AWS_DEFAULT_REGION="us-east-1"
 
-#### GET /api/v1/keys
-获取密钥列表（不返回实际密钥值）
-
-**响应：**
-```json
-{
-  "success": true,
-  "code": "KEYS_RETRIEVED",
-  "data": {
-    "keys": [
-      {
-        "key_id": "openai_key_001",
-        "provider": "openai",
-        "description": "OpenAI GPT-4 密钥",
-        "created_at": "2024-01-15T10:30:00Z",
-        "last_used": "2024-01-15T11:00:00Z",
-        "usage_count": 15,
-        "status": "active"
-      },
-      {
-        "key_id": "openrouter_key_001", 
-        "provider": "openrouter",
-        "description": "OpenRouter Claude密钥",
-        "created_at": "2024-01-15T09:00:00Z",
-        "last_used": "2024-01-15T10:45:00Z",
-        "usage_count": 8,
-        "status": "active"
-      }
-    ]
-  }
-}
-```
-
-#### DELETE /api/v1/keys/{key_id}
-删除密钥
 
 ### 响应格式规范
 
@@ -1292,9 +1288,7 @@ data: {"timestamp": "2024-01-15T11:05:00Z", "source_type": "system", "execution_
 - `EXECUTION_CANCELLED`: 执行取消成功
 - `RESULTS_RETRIEVED`: 结果获取成功
 - `FORMATTED_RESULTS_GENERATED`: 格式化结果生成成功
-- `KEY_ADDED`: 密钥添加成功
-- `KEYS_RETRIEVED`: 密钥列表获取成功
-- `KEY_DELETED`: 密钥删除成功
+
 
 #### 错误状态码
 - `TEAM_NOT_FOUND`: 团队不存在
@@ -1310,8 +1304,8 @@ data: {"timestamp": "2024-01-15T11:05:00Z", "source_type": "system", "execution_
 - `INVALID_PARAMETERS`: 参数无效
 - `SYSTEM_ERROR`: 系统内部错误
 - `INVALID_API_KEY`: API密钥无效
-- `KEY_NOT_FOUND`: 密钥不存在
 - `PROVIDER_NOT_SUPPORTED`: 不支持的LLM提供商
+- `MISSING_API_KEY`: 缺少API密钥环境变量
 
 #### 使用示例
 ```javascript
