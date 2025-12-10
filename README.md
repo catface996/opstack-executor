@@ -271,18 +271,63 @@ agent, tracker, team_names = (
   📊 专家评审团队: 1 次
 ```
 
+## HTTP API 接口
+
+系统提供 HTTP API 接口，支持通过 RESTful API 动态创建和执行层级多智能体系统。
+
+### 快速部署
+
+```bash
+# 部署到 AWS
+./deploy.sh
+
+# 测试 API
+curl -X POST https://your-api-endpoint.com/prod/execute \
+  -H "Content-Type: application/json" \
+  -d @examples/simple_request.json
+```
+
+### API 特性
+
+- ✅ **动态拓扑创建**：通过 JSON 配置创建智能体层级结构
+- ✅ **流式响应**：返回包含拓扑元数据的事件流（TeamId, SupervisorId, WorkerId）
+- ✅ **AWS 原生服务**：基于 Lambda + API Gateway + Bedrock
+- ✅ **Bedrock Agent Core 兼容**：完全兼容 AWS Bedrock Agent Core 部署
+- ✅ **无服务器架构**：自动扩展，按使用付费
+
+### 详细文档
+
+- [API 快速入门](README_API.md)
+- [API 参考文档](docs/API_REFERENCE.md)
+- [部署指南](docs/API_DEPLOYMENT.md)
+
 ## 技术栈
 
 - **Strands Agent SDK**：Agent 框架
 - **AWS Bedrock**：LLM 服务（Claude Sonnet 4）
+- **AWS Lambda**：无服务器计算
+- **API Gateway**：RESTful API 接口
 - **Python 3.12+**：开发语言
 
 ## 项目文件
 
+### 核心系统
 - `hierarchy_system.py` - 核心系统实现
-- `test_quantum_research.py` - 量子研究测试脚本
-- `test_simple_quantum.py` - 简单测试脚本
-- `README.md` - 项目文档
+- `config.py` - 配置管理
+- `output_formatter.py` - 输出格式化
+
+### HTTP API
+- `lambda_handler.py` - Lambda 函数入口
+- `hierarchy_executor.py` - 层级执行器
+- `api_models.py` - API 数据模型
+- `template.yaml` - AWS SAM 部署模板
+- `deploy.sh` - 自动化部署脚本
+- `test_api.py` - API 测试脚本
+
+### 测试和示例
+- `test/` - 测试文件目录
+- `examples/` - API 请求示例
+- `docs/` - 详细文档
 
 ## 许可证
 

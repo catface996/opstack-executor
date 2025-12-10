@@ -1,0 +1,296 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Hierarchical Multi-Agent System API
+
+Globals:
+  Function:
+    Timeout: 900  # 15 minutes for complex agent processing
+    MemorySize: 2048
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        AWS_BEDROCK_API_KEY: !Ref BedrockApiKey
+        AWS_BEDROCK_MODEL_ID: !Ref BedrockModelId
+        DEBUG: !Ref DebugMode
+
+Parameters:
+  BedrockApiKey:
+    Type: String
+    Description: AWS Bedrock API Key
+    NoEcho: true
+    
+  BedrockModelId:
+    Type: String
+    Description: AWS Bedrock Model ID
+    Default: us.anthropic.claude-sonnet-4-20250514-v1:0
+    
+  DebugMode:
+    Type: String
+    Description: Enable debug mode
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+
+Resources:
+  # Lambda Function for Agent Execution
+  HierarchicalAgentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: hierarchical-agents-api
+      CodeUri: .
+      Handler: lambda_handler.lambda_handler
+      Description: Execute hierarchical multi-agent systems
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Events:
+        ExecuteAgents:
+          Type: Api
+          Properties:
+            Path: /execute
+            Method: POST
+            RestApiId: !Ref HierarchicalAgentsApi
+        OptionsExecute:
+          Type: Api
+          Properties:
+            Path: /execute
+            Method: OPTIONS
+            RestApiId: !Ref HierarchicalAgentsApi
+      Tags:
+        Service: hierarchical-agents
+        Environment: !Ref DebugMode
+
+  # Lambda Function for Health Check
+  HealthCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: hierarchical-agents-health
+      CodeUri: .
+      Handler: lambda_handler.health_check_handler
+      Description: Health check endpoint
+      Timeout: 30
+      MemorySize: 256
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Events:
+        HealthCheck:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: GET
+            RestApiId: !Ref HierarchicalAgentsApi
+      Tags:
+        Service: hierarchical-agents
+        Environment: !Ref DebugMode
+
+  # API Gateway
+  HierarchicalAgentsApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: hierarchical-agents-api
+      StageName: prod
+      Cors:
+        AllowMethods: "'POST, GET, OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      DefinitionBody:
+        swagger: "2.0"
+        info:
+          title: "Hierarchical Multi-Agent System API"
+          version: "1.0.0"
+        paths:
+          /execute:
+            post:
+              summary: Execute hierarchical agent system
+              consumes:
+                - application/json
+              produces:
+                - application/json
+              parameters:
+                - in: body
+                  name: body
+                  required: true
+                  schema:
+                    $ref: "#/definitions/ExecutionRequest"
+              responses:
+                "200":
+                  description: Successful execution
+                  schema:
+                    $ref: "#/definitions/ExecutionResponse"
+                "400":
+                  description: Invalid request
+                "500":
+                  description: Internal server error
+              x-amazon-apigateway-integration:
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HierarchicalAgentsFunction.Arn}/invocations"
+                httpMethod: POST
+                type: aws_proxy
+            options:
+              summary: CORS preflight
+              responses:
+                "200":
+                  description: CORS headers
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{"statusCode": 200}'
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                      method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Origin: "'*'"
+          /health:
+            get:
+              summary: Health check
+              produces:
+                - application/json
+              responses:
+                "200":
+                  description: Service is healthy
+              x-amazon-apigateway-integration:
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HealthCheckFunction.Arn}/invocations"
+                httpMethod: POST
+                type: aws_proxy
+        definitions:
+          ExecutionRequest:
+            type: object
+            required:
+              - global_prompt
+              - teams
+              - task
+            properties:
+              global_prompt:
+                type: string
+                description: System prompt for global supervisor
+              teams:
+                type: array
+                description: List of team configurations
+                items:
+                  $ref: "#/definitions/TeamConfig"
+              task:
+                type: string
+                description: Task to execute
+              execution_mode:
+                type: string
+                enum: [sequential, parallel]
+                default: sequential
+              enable_context_sharing:
+                type: boolean
+                default: false
+          TeamConfig:
+            type: object
+            required:
+              - name
+              - supervisor_prompt
+              - workers
+            properties:
+              name:
+                type: string
+              supervisor_prompt:
+                type: string
+              workers:
+                type: array
+                items:
+                  $ref: "#/definitions/WorkerConfig"
+              prevent_duplicate:
+                type: boolean
+                default: true
+              share_context:
+                type: boolean
+                default: false
+          WorkerConfig:
+            type: object
+            required:
+              - name
+              - role
+              - system_prompt
+            properties:
+              name:
+                type: string
+              role:
+                type: string
+              system_prompt:
+                type: string
+              tools:
+                type: array
+                items:
+                  type: string
+              temperature:
+                type: number
+                default: 0.7
+              max_tokens:
+                type: integer
+                default: 2048
+          ExecutionResponse:
+            type: object
+            properties:
+              success:
+                type: boolean
+              topology:
+                $ref: "#/definitions/TopologyInfo"
+              events:
+                type: array
+                items:
+                  $ref: "#/definitions/StreamEvent"
+              result:
+                type: string
+              error:
+                type: string
+              statistics:
+                type: object
+          TopologyInfo:
+            type: object
+            properties:
+              global_supervisor_id:
+                type: string
+              teams:
+                type: array
+          StreamEvent:
+            type: object
+            properties:
+              event_type:
+                type: string
+              timestamp:
+                type: string
+              data:
+                type: object
+              topology_metadata:
+                type: object
+
+  # CloudWatch Log Groups
+  HierarchicalAgentsFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${HierarchicalAgentsFunction}
+      RetentionInDays: 7
+
+  HealthCheckFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${HealthCheckFunction}
+      RetentionInDays: 7
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${HierarchicalAgentsApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+    
+  ExecuteEndpoint:
+    Description: Execute endpoint URL
+    Value: !Sub "https://${HierarchicalAgentsApi}.execute-api.${AWS::Region}.amazonaws.com/prod/execute"
+    
+  HealthCheckEndpoint:
+    Description: Health check endpoint URL
+    Value: !Sub "https://${HierarchicalAgentsApi}.execute-api.${AWS::Region}.amazonaws.com/prod/health"
+    
+  HierarchicalAgentsFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt HierarchicalAgentsFunction.Arn
+    
+  HierarchicalAgentsFunctionName:
+    Description: Lambda function name
+    Value: !Ref HierarchicalAgentsFunction

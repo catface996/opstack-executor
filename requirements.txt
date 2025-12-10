@@ -1,0 +1,6 @@
+# Core dependencies for hierarchical agent system
+strands>=0.1.0
+strands-tools>=0.1.0
+
+# AWS Bedrock support (if needed beyond strands)
+boto3>=1.34.0
