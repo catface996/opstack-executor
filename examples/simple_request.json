@@ -1,0 +1,19 @@
+{
+  "global_prompt": "你是研究中心的首席科学家，负责协调研究团队完成科研任务。",
+  "teams": [
+    {
+      "name": "理论研究团队",
+      "supervisor_prompt": "你是理论研究团队的负责人，负责协调团队成员进行理论分析。",
+      "workers": [
+        {
+          "name": "理论物理学家",
+          "role": "量子理论研究",
+          "system_prompt": "你是量子理论专家，擅长量子力学的理论分析和数学推导。请提供严谨的理论解释。",
+          "tools": ["calculator"]
+        }
+      ]
+    }
+  ],
+  "task": "分析量子纠缠现象的理论基础",
+  "execution_mode": "sequential"
+}
