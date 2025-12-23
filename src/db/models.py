@@ -82,8 +82,11 @@ class HierarchyTeam(Base):
     execution_mode = Column(String(20), default='sequential', comment='执行模式: sequential/parallel')
     enable_context_sharing = Column(Boolean, default=False, comment='是否启用上下文共享')
 
-    # 关联的 AI 模型（全局 Supervisor 使用）
+    # Global Supervisor LLM 配置
     global_model_id = Column(String(36), ForeignKey('ai_models.id'), nullable=True)
+    global_temperature = Column(Float, default=0.7, comment='Global Supervisor 温度参数')
+    global_max_tokens = Column(Integer, default=2048, comment='Global Supervisor 最大 token 数')
+    global_top_p = Column(Float, default=0.9, comment='Global Supervisor Top-P 参数')
 
     # 元数据
     is_active = Column(Boolean, default=True)
@@ -107,8 +110,12 @@ class HierarchyTeam(Base):
             'global_prompt': self.global_prompt,
             'execution_mode': self.execution_mode,
             'enable_context_sharing': self.enable_context_sharing,
-            'global_model_id': self.global_model_id,
-            'global_model': self.global_model.to_dict() if self.global_model else None,
+            'llm_config': {
+                'model_id': self.global_model_id,
+                'temperature': self.global_temperature,
+                'max_tokens': self.global_max_tokens,
+                'top_p': self.global_top_p,
+            },
             'is_active': self.is_active,
             'version': self.version,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -143,8 +150,11 @@ class Team(Base):
     share_context = Column(Boolean, default=False, comment='共享上下文')
     order_index = Column(Integer, default=0, comment='团队顺序')
 
-    # 关联的 AI 模型
+    # Team Supervisor LLM 配置
     model_id = Column(String(36), ForeignKey('ai_models.id'), nullable=True)
+    temperature = Column(Float, default=0.7, comment='Team Supervisor 温度参数')
+    max_tokens = Column(Integer, default=2048, comment='Team Supervisor 最大 token 数')
+    top_p = Column(Float, default=0.9, comment='Team Supervisor Top-P 参数')
 
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -166,8 +176,12 @@ class Team(Base):
             'prevent_duplicate': self.prevent_duplicate,
             'share_context': self.share_context,
             'order_index': self.order_index,
-            'model_id': self.model_id,
-            'model': self.model.to_dict() if self.model else None,
+            'llm_config': {
+                'model_id': self.model_id,
+                'temperature': self.temperature,
+                'max_tokens': self.max_tokens,
+                'top_p': self.top_p,
+            },
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -199,12 +213,13 @@ class Worker(Base):
 
     # Worker 参数
     tools = Column(JSON, default=list, comment='工具列表')
-    temperature = Column(Float, default=0.7)
-    max_tokens = Column(Integer, default=2048)
     order_index = Column(Integer, default=0, comment='Worker 顺序')
 
-    # 关联的 AI 模型
+    # Worker LLM 配置
     model_id = Column(String(36), ForeignKey('ai_models.id'), nullable=True)
+    temperature = Column(Float, default=0.7, comment='Worker 温度参数')
+    max_tokens = Column(Integer, default=2048, comment='Worker 最大 token 数')
+    top_p = Column(Float, default=0.9, comment='Worker Top-P 参数')
 
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -223,11 +238,13 @@ class Worker(Base):
             'role': self.role,
             'system_prompt': self.system_prompt,
             'tools': self.tools or [],
-            'temperature': self.temperature,
-            'max_tokens': self.max_tokens,
             'order_index': self.order_index,
-            'model_id': self.model_id,
-            'model': self.model.to_dict() if self.model else None,
+            'llm_config': {
+                'model_id': self.model_id,
+                'temperature': self.temperature,
+                'max_tokens': self.max_tokens,
+                'top_p': self.top_p,
+            },
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

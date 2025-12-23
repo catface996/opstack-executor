@@ -184,9 +184,163 @@ hierarchical-agents/
 | `POST /api/v1/hierarchies/list` | 列出层级团队 |
 | `POST /api/v1/hierarchies/create` | 创建层级团队 |
 | `POST /api/v1/hierarchies/get` | 获取层级详情 |
+| `POST /api/v1/hierarchies/update` | 更新层级团队 |
+| `POST /api/v1/hierarchies/delete` | 删除层级团队 |
 | `POST /api/v1/runs/start` | 启动执行 |
 | `POST /api/v1/runs/get` | 获取执行状态 |
-| `POST /api/v1/runs/stream` | 流式获取事件 |
+| `POST /api/v1/runs/stream` | 流式获取事件 (SSE) |
+| `POST /api/v1/runs/list` | 获取运行列表 |
+| `POST /api/v1/runs/cancel` | 取消运行 |
+| `POST /api/v1/runs/events` | 获取运行事件列表 |
+
+## API 调用时序图
+
+以下时序图展示了如何组合 **层级团队管理 API** 和 **运行管理 API** 来完成多智能体协作任务：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as 客户端
+    participant API as API Server
+    participant DB as Database
+    participant GS as Global Supervisor
+    participant TS as Team Supervisor
+    participant W as Worker
+
+    %% ========== 阶段1: 创建层级团队 ==========
+    rect rgb(240, 248, 255)
+        Note over Client,DB: 阶段1: 创建层级团队 (一次性配置)
+        Client->>+API: POST /hierarchies/create
+        Note right of Client: {name, global_prompt,<br/>llm_config, teams[]}
+        API->>DB: 保存层级团队配置
+        DB-->>API: hierarchy_id
+        API-->>-Client: {success, data: {id, name, teams[]}}
+    end
+
+    %% ========== 阶段2: 启动任务执行 ==========
+    rect rgb(255, 250, 240)
+        Note over Client,W: 阶段2: 启动任务执行
+        Client->>+API: POST /runs/start
+        Note right of Client: {hierarchy_id, task}
+        API->>DB: 创建运行记录
+        DB-->>API: run_id
+        API->>API: 启动异步执行线程
+        API-->>-Client: {run_id, status: "running", stream_url}
+    end
+
+    %% ========== 阶段3: 订阅实时事件流 ==========
+    rect rgb(240, 255, 240)
+        Note over Client,W: 阶段3: 订阅 SSE 事件流 (可选)
+        Client->>+API: POST /runs/stream {id: run_id}
+        API-->>Client: SSE Connection Established
+
+        %% 执行过程
+        API->>+GS: 执行任务
+        GS-->>API: event: thinking
+        API-->>Client: SSE: {type: "global_thinking", content}
+
+        GS->>+TS: 委派子任务到团队
+        GS-->>API: event: team_selected
+        API-->>Client: SSE: {type: "team_dispatch", team}
+
+        TS-->>API: event: thinking
+        API-->>Client: SSE: {type: "team_thinking", team, content}
+
+        TS->>+W: 分配任务给 Worker
+        TS-->>API: event: worker_selected
+        API-->>Client: SSE: {type: "worker_dispatch", worker}
+
+        W-->>API: event: working
+        API-->>Client: SSE: {type: "worker_output", content}
+        W-->>-TS: Worker 结果
+
+        TS-->>API: event: synthesis
+        API-->>Client: SSE: {type: "team_synthesis", result}
+        TS-->>-GS: 团队结果
+
+        GS-->>API: event: synthesis
+        API-->>Client: SSE: {type: "global_synthesis", result}
+        GS-->>-API: 最终结果
+
+        API-->>Client: SSE: {type: "completed", result}
+        API-->>-Client: SSE Connection Closed
+    end
+
+    %% ========== 阶段4: 查询结果 ==========
+    rect rgb(255, 240, 245)
+        Note over Client,DB: 阶段4: 查询执行结果
+        Client->>+API: POST /runs/get {id: run_id}
+        API->>DB: 查询运行记录
+        DB-->>API: 运行详情
+        API-->>-Client: {status, result, statistics}
+
+        opt 查看详细事件
+            Client->>+API: POST /runs/events {id: run_id}
+            API->>DB: 查询事件列表
+            DB-->>API: 事件记录
+            API-->>-Client: {events[]}
+        end
+    end
+```
+
+### 典型调用流程
+
+```bash
+# Step 1: 创建层级团队 (仅需一次)
+HIERARCHY_ID=$(curl -s -X POST http://localhost:8080/api/v1/hierarchies/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "研究团队",
+    "global_prompt": "你是研究协调者，负责分析任务并分配给合适的团队",
+    "llm_config": {"temperature": 0.7, "max_tokens": 4096},
+    "teams": [{
+      "name": "分析组",
+      "supervisor_prompt": "你是分析组负责人",
+      "llm_config": {"temperature": 0.6},
+      "workers": [{
+        "name": "分析师",
+        "role": "数据分析专家",
+        "system_prompt": "你是数据分析专家，擅长深度分析问题",
+        "llm_config": {"temperature": 0.5}
+      }]
+    }]
+  }' | jq -r '.data.id')
+
+echo "Created hierarchy: $HIERARCHY_ID"
+
+# Step 2: 启动任务执行
+RUN_ID=$(curl -s -X POST http://localhost:8080/api/v1/runs/start \
+  -H "Content-Type: application/json" \
+  -d "{\"hierarchy_id\": \"$HIERARCHY_ID\", \"task\": \"分析人工智能的发展趋势\"}" \
+  | jq -r '.data.id')
+
+echo "Started run: $RUN_ID"
+
+# Step 3: 流式获取执行过程 (SSE)
+curl -N -X POST http://localhost:8080/api/v1/runs/stream \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": \"$RUN_ID\"}"
+
+# Step 4: 或者轮询获取结果
+curl -s -X POST http://localhost:8080/api/v1/runs/get \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": \"$RUN_ID\"}" | jq
+```
+
+### SSE 事件类型
+
+| 事件类型 | 描述 | 数据字段 |
+|----------|------|----------|
+| `execution_started` | 执行开始 | `task`, `hierarchy_id` |
+| `global_thinking` | Global Supervisor 思考 | `content` |
+| `team_dispatch` | 任务分派到团队 | `team`, `task` |
+| `team_thinking` | Team Supervisor 思考 | `team`, `content` |
+| `worker_dispatch` | 任务分派到 Worker | `team`, `worker`, `task` |
+| `worker_output` | Worker 输出 | `team`, `worker`, `content` |
+| `team_synthesis` | 团队结果综合 | `team`, `result` |
+| `global_synthesis` | 全局结果综合 | `result` |
+| `execution_completed` | 执行完成 | `result`, `statistics` |
+| `execution_failed` | 执行失败 | `error` |
 
 ## 多平台 Docker 构建
 

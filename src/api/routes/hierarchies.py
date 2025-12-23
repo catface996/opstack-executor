@@ -140,7 +140,16 @@ def get_hierarchy():
                 'global_prompt': {'type': 'string'},
                 'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel']},
                 'enable_context_sharing': {'type': 'boolean'},
-                'global_model_id': {'type': 'string'},
+                'llm_config': {
+                    'type': 'object',
+                    'description': 'Global Supervisor LLM 配置',
+                    'properties': {
+                        'model_id': {'type': 'string'},
+                        'temperature': {'type': 'number', 'default': 0.7},
+                        'max_tokens': {'type': 'integer', 'default': 2048},
+                        'top_p': {'type': 'number', 'default': 0.9}
+                    }
+                },
                 'teams': {
                     'type': 'array',
                     'items': {
@@ -151,7 +160,16 @@ def get_hierarchy():
                             'supervisor_prompt': {'type': 'string'},
                             'prevent_duplicate': {'type': 'boolean'},
                             'share_context': {'type': 'boolean'},
-                            'model_id': {'type': 'string'},
+                            'llm_config': {
+                                'type': 'object',
+                                'description': 'Team Supervisor LLM 配置',
+                                'properties': {
+                                    'model_id': {'type': 'string'},
+                                    'temperature': {'type': 'number', 'default': 0.7},
+                                    'max_tokens': {'type': 'integer', 'default': 2048},
+                                    'top_p': {'type': 'number', 'default': 0.9}
+                                }
+                            },
                             'workers': {
                                 'type': 'array',
                                 'items': {
@@ -162,9 +180,16 @@ def get_hierarchy():
                                         'role': {'type': 'string'},
                                         'system_prompt': {'type': 'string'},
                                         'tools': {'type': 'array', 'items': {'type': 'string'}},
-                                        'temperature': {'type': 'number'},
-                                        'max_tokens': {'type': 'integer'},
-                                        'model_id': {'type': 'string'}
+                                        'llm_config': {
+                                            'type': 'object',
+                                            'description': 'Worker LLM 配置',
+                                            'properties': {
+                                                'model_id': {'type': 'string'},
+                                                'temperature': {'type': 'number', 'default': 0.7},
+                                                'max_tokens': {'type': 'integer', 'default': 2048},
+                                                'top_p': {'type': 'number', 'default': 0.9}
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -223,15 +248,70 @@ def create_hierarchy():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'},
-                'name': {'type': 'string'},
-                'description': {'type': 'string'},
-                'global_prompt': {'type': 'string'},
-                'execution_mode': {'type': 'string'},
-                'enable_context_sharing': {'type': 'boolean'},
-                'global_model_id': {'type': 'string'},
-                'is_active': {'type': 'boolean'},
-                'teams': {'type': 'array', 'description': '提供时将完整替换'}
+                'id': {'type': 'string', 'description': '层级团队 ID'},
+                'name': {'type': 'string', 'description': '层级团队名称'},
+                'description': {'type': 'string', 'description': '描述'},
+                'global_prompt': {'type': 'string', 'description': '全局 Supervisor 提示词'},
+                'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel'], 'description': '执行模式'},
+                'enable_context_sharing': {'type': 'boolean', 'description': '启用上下文共享'},
+                'llm_config': {
+                    'type': 'object',
+                    'description': 'Global Supervisor LLM 配置',
+                    'properties': {
+                        'model_id': {'type': 'string', 'description': '模型 ID'},
+                        'temperature': {'type': 'number', 'default': 0.7, 'description': '温度参数'},
+                        'max_tokens': {'type': 'integer', 'default': 2048, 'description': '最大 token 数'},
+                        'top_p': {'type': 'number', 'default': 0.9, 'description': 'Top-P 参数'}
+                    }
+                },
+                'is_active': {'type': 'boolean', 'description': '是否激活'},
+                'teams': {
+                    'type': 'array',
+                    'description': '团队列表（提供时将完整替换）',
+                    'items': {
+                        'type': 'object',
+                        'required': ['name', 'supervisor_prompt', 'workers'],
+                        'properties': {
+                            'name': {'type': 'string', 'description': '团队名称'},
+                            'supervisor_prompt': {'type': 'string', 'description': 'Team Supervisor 提示词'},
+                            'prevent_duplicate': {'type': 'boolean', 'default': True},
+                            'share_context': {'type': 'boolean', 'default': False},
+                            'llm_config': {
+                                'type': 'object',
+                                'description': 'Team Supervisor LLM 配置',
+                                'properties': {
+                                    'model_id': {'type': 'string'},
+                                    'temperature': {'type': 'number', 'default': 0.7},
+                                    'max_tokens': {'type': 'integer', 'default': 2048},
+                                    'top_p': {'type': 'number', 'default': 0.9}
+                                }
+                            },
+                            'workers': {
+                                'type': 'array',
+                                'items': {
+                                    'type': 'object',
+                                    'required': ['name', 'role', 'system_prompt'],
+                                    'properties': {
+                                        'name': {'type': 'string'},
+                                        'role': {'type': 'string'},
+                                        'system_prompt': {'type': 'string'},
+                                        'tools': {'type': 'array', 'items': {'type': 'string'}},
+                                        'llm_config': {
+                                            'type': 'object',
+                                            'description': 'Worker LLM 配置',
+                                            'properties': {
+                                                'model_id': {'type': 'string'},
+                                                'temperature': {'type': 'number', 'default': 0.7},
+                                                'max_tokens': {'type': 'integer', 'default': 2048},
+                                                'top_p': {'type': 'number', 'default': 0.9}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }],

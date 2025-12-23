@@ -14,6 +14,70 @@ class HierarchyRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    @staticmethod
+    def _extract_hierarchy_llm_config(data: dict) -> dict:
+        """
+        从请求数据中提取 Global Supervisor 的 LLM 配置
+
+        将嵌套的 llm_config 展开为数据库字段：
+        - llm_config.model_id -> global_model_id
+        - llm_config.temperature -> global_temperature
+        - llm_config.max_tokens -> global_max_tokens
+        - llm_config.top_p -> global_top_p
+        """
+        llm_config = data.pop('llm_config', None)
+        if llm_config:
+            if isinstance(llm_config, dict):
+                if 'model_id' in llm_config:
+                    data['global_model_id'] = llm_config['model_id']
+                if 'temperature' in llm_config:
+                    data['global_temperature'] = llm_config['temperature']
+                if 'max_tokens' in llm_config:
+                    data['global_max_tokens'] = llm_config['max_tokens']
+                if 'top_p' in llm_config:
+                    data['global_top_p'] = llm_config['top_p']
+        return data
+
+    @staticmethod
+    def _extract_team_llm_config(data: dict) -> dict:
+        """
+        从请求数据中提取 Team Supervisor 的 LLM 配置
+
+        将嵌套的 llm_config 展开为数据库字段
+        """
+        llm_config = data.pop('llm_config', None)
+        if llm_config:
+            if isinstance(llm_config, dict):
+                if 'model_id' in llm_config:
+                    data['model_id'] = llm_config['model_id']
+                if 'temperature' in llm_config:
+                    data['temperature'] = llm_config['temperature']
+                if 'max_tokens' in llm_config:
+                    data['max_tokens'] = llm_config['max_tokens']
+                if 'top_p' in llm_config:
+                    data['top_p'] = llm_config['top_p']
+        return data
+
+    @staticmethod
+    def _extract_worker_llm_config(data: dict) -> dict:
+        """
+        从请求数据中提取 Worker 的 LLM 配置
+
+        将嵌套的 llm_config 展开为数据库字段
+        """
+        llm_config = data.pop('llm_config', None)
+        if llm_config:
+            if isinstance(llm_config, dict):
+                if 'model_id' in llm_config:
+                    data['model_id'] = llm_config['model_id']
+                if 'temperature' in llm_config:
+                    data['temperature'] = llm_config['temperature']
+                if 'max_tokens' in llm_config:
+                    data['max_tokens'] = llm_config['max_tokens']
+                if 'top_p' in llm_config:
+                    data['top_p'] = llm_config['top_p']
+        return data
+
     def create(self, data: dict) -> HierarchyTeam:
         """
         创建层级团队（包含嵌套的 Teams 和 Workers）
@@ -23,18 +87,23 @@ class HierarchyRepository:
                 {
                     'name': str,
                     'global_prompt': str,
+                    'llm_config': {'model_id': str, 'temperature': float, ...},
                     'teams': [
                         {
                             'name': str,
                             'supervisor_prompt': str,
+                            'llm_config': {...},
                             'workers': [
-                                {'name': str, 'role': str, 'system_prompt': str, ...}
+                                {'name': str, 'role': str, 'system_prompt': str, 'llm_config': {...}}
                             ]
                         }
                     ]
                 }
         """
         teams_data = data.pop('teams', [])
+
+        # 提取 Global Supervisor LLM 配置
+        data = self._extract_hierarchy_llm_config(data)
 
         # 创建主记录
         hierarchy = HierarchyTeam(**data)
@@ -47,6 +116,9 @@ class HierarchyRepository:
             team_data['hierarchy_id'] = hierarchy.id
             team_data['order_index'] = i
 
+            # 提取 Team Supervisor LLM 配置
+            team_data = self._extract_team_llm_config(team_data)
+
             team = Team(**team_data)
             self.session.add(team)
             self.session.flush()
@@ -54,6 +126,10 @@ class HierarchyRepository:
             for j, worker_data in enumerate(workers_data):
                 worker_data['team_id'] = team.id
                 worker_data['order_index'] = j
+
+                # 提取 Worker LLM 配置
+                worker_data = self._extract_worker_llm_config(worker_data)
+
                 worker = Worker(**worker_data)
                 self.session.add(worker)
 
@@ -114,6 +190,9 @@ class HierarchyRepository:
 
         teams_data = data.pop('teams', None)
 
+        # 提取 Global Supervisor LLM 配置
+        data = self._extract_hierarchy_llm_config(data)
+
         # 更新主记录字段
         for key, value in data.items():
             if hasattr(hierarchy, key) and key not in ('id', 'created_at', 'teams'):
@@ -132,6 +211,9 @@ class HierarchyRepository:
                 team_data['hierarchy_id'] = hierarchy.id
                 team_data['order_index'] = i
 
+                # 提取 Team Supervisor LLM 配置
+                team_data = self._extract_team_llm_config(team_data)
+
                 team = Team(**team_data)
                 self.session.add(team)
                 self.session.flush()
@@ -139,6 +221,10 @@ class HierarchyRepository:
                 for j, worker_data in enumerate(workers_data):
                     worker_data['team_id'] = team.id
                     worker_data['order_index'] = j
+
+                    # 提取 Worker LLM 配置
+                    worker_data = self._extract_worker_llm_config(worker_data)
+
                     worker = Worker(**worker_data)
                     self.session.add(worker)
 
