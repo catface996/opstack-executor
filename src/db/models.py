@@ -288,7 +288,7 @@ class ExecutionRun(Base):
     # 关系
     hierarchy = relationship("HierarchyTeam")
     events = relationship("ExecutionEvent", back_populates="run", cascade="all, delete-orphan",
-                         order_by="ExecutionEvent.timestamp")
+                         order_by="ExecutionEvent.timestamp, ExecutionEvent.sequence")
 
     def to_dict(self, include_events: bool = False) -> dict:
         """转换为字典"""
