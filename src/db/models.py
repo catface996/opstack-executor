@@ -322,9 +322,11 @@ class ExecutionEvent(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     data = Column(JSON, nullable=True, comment='事件数据')
 
-    # 拓扑元数据
-    team_name = Column(String(100), nullable=True)
-    worker_name = Column(String(100), nullable=True)
+    # 来源标识
+    is_global_supervisor = Column(Boolean, default=False, comment='是否为 Global Supervisor 输出')
+    team_name = Column(String(100), nullable=True, comment='团队名称')
+    is_team_supervisor = Column(Boolean, default=False, comment='是否为 Team Supervisor 输出')
+    worker_name = Column(String(100), nullable=True, comment='Worker 名称')
 
     # 关系
     run = relationship("ExecutionRun", back_populates="events")
@@ -337,6 +339,8 @@ class ExecutionEvent(Base):
             'event_type': self.event_type,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
             'data': self.data,
+            'is_global_supervisor': self.is_global_supervisor,
             'team_name': self.team_name,
+            'is_team_supervisor': self.is_team_supervisor,
             'worker_name': self.worker_name,
         }

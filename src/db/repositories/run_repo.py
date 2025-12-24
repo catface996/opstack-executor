@@ -107,7 +107,9 @@ class RunRepository:
         run_id: str,
         event_type: str,
         data: dict = None,
+        is_global_supervisor: bool = False,
         team_name: str = None,
+        is_team_supervisor: bool = False,
         worker_name: str = None
     ) -> ExecutionEvent:
         """添加执行事件"""
@@ -115,7 +117,9 @@ class RunRepository:
             run_id=run_id,
             event_type=event_type,
             data=data,
+            is_global_supervisor=is_global_supervisor,
             team_name=team_name,
+            is_team_supervisor=is_team_supervisor,
             worker_name=worker_name,
             timestamp=datetime.utcnow()
         )

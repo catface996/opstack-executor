@@ -32,10 +32,13 @@ class OutputInterceptor:
         'warning': re.compile(r'⚠️|警告|Warning', re.IGNORECASE),
     }
 
-    # 标签解析模式（用于从输出中提取 team_name 和 worker_name）
-    # 格式: [Team: 团队名 | Worker: 成员名] 或 [Team: 团队名 | Supervisor] 或 [Global Supervisor]
-    LABEL_PATTERN = re.compile(r'\[(?:Team:\s*([^|\]]+?)\s*\|)?\s*(?:Worker:\s*([^\]]+?)|Supervisor|Global Supervisor)\s*\]')
+    # 标签解析模式
+    # [Global Supervisor] - Global Supervisor
+    # [Team: 团队名 | Supervisor] - Team Supervisor
+    # [Team: 团队名 | Worker: 成员名] - Worker
     GLOBAL_SUPERVISOR_PATTERN = re.compile(r'\[Global Supervisor\]')
+    TEAM_SUPERVISOR_PATTERN = re.compile(r'\[Team:\s*([^|\]]+?)\s*\|\s*Supervisor\s*\]')
+    WORKER_PATTERN = re.compile(r'\[Team:\s*([^|\]]+?)\s*\|\s*Worker:\s*([^\]]+?)\s*\]')
 
     def __init__(self, event_callback: Callable[[str, Dict[str, Any]], None]):
         """
@@ -75,31 +78,40 @@ class OutputInterceptor:
         if self.original_stdout:
             self.original_stdout.flush()
 
-    def _extract_label_info(self, text: str) -> Dict[str, Optional[str]]:
+    def _extract_label_info(self, text: str) -> Dict[str, Any]:
         """
-        从输出文本中提取标签信息（team_name、worker_name、is_global_supervisor）
+        从输出文本中提取来源标签信息
 
         标签格式:
-        - [Team: 团队名 | Worker: 成员名]
-        - [Team: 团队名 | Supervisor]
-        - [Global Supervisor]
-        - [Worker: 成员名]
+        - [Global Supervisor] -> is_global_supervisor=True
+        - [Team: 团队名 | Supervisor] -> team_name, is_team_supervisor=True
+        - [Team: 团队名 | Worker: 成员名] -> team_name, worker_name
         """
-        result = {'team_name': None, 'worker_name': None, 'is_global_supervisor': False}
+        result = {
+            'is_global_supervisor': False,
+            'team_name': None,
+            'is_team_supervisor': False,
+            'worker_name': None
+        }
 
-        # 检查是否是 Global Supervisor
+        # 1. 检查是否是 Global Supervisor
         if self.GLOBAL_SUPERVISOR_PATTERN.search(text):
             result['is_global_supervisor'] = True
             return result
 
-        match = self.LABEL_PATTERN.search(text)
+        # 2. 检查是否是 Team Supervisor
+        match = self.TEAM_SUPERVISOR_PATTERN.search(text)
         if match:
-            team_name = match.group(1)
-            worker_name = match.group(2)
-            if team_name:
-                result['team_name'] = team_name.strip()
-            if worker_name:
-                result['worker_name'] = worker_name.strip()
+            result['team_name'] = match.group(1).strip()
+            result['is_team_supervisor'] = True
+            return result
+
+        # 3. 检查是否是 Worker
+        match = self.WORKER_PATTERN.search(text)
+        if match:
+            result['team_name'] = match.group(1).strip()
+            result['worker_name'] = match.group(2).strip()
+            return result
 
         return result
 
@@ -110,7 +122,7 @@ class OutputInterceptor:
 
         text_stripped = text.strip()
 
-        # 提取标签信息（team_name、worker_name、is_global_supervisor）
+        # 提取来源标签信息
         label_info = self._extract_label_info(text_stripped)
 
         # 按优先级匹配模式
@@ -125,10 +137,11 @@ class OutputInterceptor:
                 if match.groups():
                     data['name'] = match.group(1)
 
-                # 添加标签信息（用于外层字段，不放在 data 内部）
-                data['_team_name'] = label_info['team_name']
-                data['_worker_name'] = label_info['worker_name']
+                # 添加来源标签信息（以 _ 开头，用于外层字段）
                 data['_is_global_supervisor'] = label_info['is_global_supervisor']
+                data['_team_name'] = label_info['team_name']
+                data['_is_team_supervisor'] = label_info['is_team_supervisor']
+                data['_worker_name'] = label_info['worker_name']
 
                 self.event_callback(event_type, data)
                 return
@@ -137,9 +150,10 @@ class OutputInterceptor:
         if len(text_stripped) > 10:  # 忽略太短的输出
             self.event_callback('output', {
                 'content': text_stripped[:1000],  # 限制长度
+                '_is_global_supervisor': label_info['is_global_supervisor'],
                 '_team_name': label_info['team_name'],
-                '_worker_name': label_info['worker_name'],
-                '_is_global_supervisor': label_info['is_global_supervisor']
+                '_is_team_supervisor': label_info['is_team_supervisor'],
+                '_worker_name': label_info['worker_name']
             })
 
 
