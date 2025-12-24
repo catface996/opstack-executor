@@ -283,6 +283,49 @@ class ChatbotDisplay:
             print(f"{Colors.RED}{'═' * 60}{Colors.RESET}")
 
 
+def print_hierarchy_structure():
+    """打印层级团队结构"""
+    config = DEFAULT_HIERARCHY_CONFIG
+
+    print(f"\n{Colors.CYAN}{'═' * 60}{Colors.RESET}")
+    print(f"{Colors.CYAN}📊 层级团队结构{Colors.RESET}")
+    print(f"{Colors.CYAN}{'═' * 60}{Colors.RESET}")
+
+    # 打印全局信息
+    print(f"\n{Colors.MAGENTA}{Colors.BOLD}🎯 Global Supervisor: {config['name']}{Colors.RESET}")
+    print(f"{Colors.DIM}   执行模式: {config.get('execution_mode', 'sequential')}{Colors.RESET}")
+    print(f"{Colors.DIM}   上下文共享: {config.get('enable_context_sharing', False)}{Colors.RESET}")
+
+    # 打印团队结构
+    teams = config.get('teams', [])
+    for i, team in enumerate(teams):
+        team_name = team.get('name', f'Team {i+1}')
+        is_last_team = (i == len(teams) - 1)
+        team_prefix = "└──" if is_last_team else "├──"
+
+        print(f"\n{Colors.CYAN}{Colors.BOLD}   {team_prefix} 👔 Team Supervisor: {team_name}{Colors.RESET}")
+
+        # 打印 Worker
+        workers = team.get('workers', [])
+        for j, worker in enumerate(workers):
+            worker_name = worker.get('name', f'Worker {j+1}')
+            worker_role = worker.get('role', '')
+            is_last_worker = (j == len(workers) - 1)
+
+            if is_last_team:
+                worker_prefix = "       └──" if is_last_worker else "       ├──"
+            else:
+                worker_prefix = "   │   └──" if is_last_worker else "   │   ├──"
+
+            print(f"{Colors.GREEN}   {worker_prefix} 🔬 {worker_name}{Colors.RESET}", end="")
+            if worker_role:
+                print(f" {Colors.DIM}({worker_role}){Colors.RESET}")
+            else:
+                print()
+
+    print(f"\n{Colors.CYAN}{'═' * 60}{Colors.RESET}\n")
+
+
 def create_hierarchy_team():
     """创建层级团队"""
     print(f"\n{Colors.CYAN}📦 创建层级团队...{Colors.RESET}")
@@ -426,7 +469,10 @@ def main():
 ╚══════════════════════════════════════════════════════════════╝{Colors.RESET}
     """)
 
-    # 检查服务
+    # 1. 先打印层级团队结构
+    print_hierarchy_structure()
+
+    # 2. 连接服务
     print(f"{Colors.DIM}连接服务: {API_BASE}{Colors.RESET}")
     try:
         health = requests.get(f"{API_BASE}/health", timeout=5)
@@ -438,7 +484,7 @@ def main():
         print(f"{Colors.RED}❌ 无法连接: {e}{Colors.RESET}")
         return
 
-    # 获取或创建层级团队
+    # 3. 获取或创建层级团队
     if not HIERARCHY_ID:
         if not skip_create:
             existing = get_first_hierarchy()
