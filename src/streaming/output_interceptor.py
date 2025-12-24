@@ -35,6 +35,7 @@ class OutputInterceptor:
     # 标签解析模式（用于从输出中提取 team_name 和 worker_name）
     # 格式: [Team: 团队名 | Worker: 成员名] 或 [Team: 团队名 | Supervisor] 或 [Global Supervisor]
     LABEL_PATTERN = re.compile(r'\[(?:Team:\s*([^|\]]+?)\s*\|)?\s*(?:Worker:\s*([^\]]+?)|Supervisor|Global Supervisor)\s*\]')
+    GLOBAL_SUPERVISOR_PATTERN = re.compile(r'\[Global Supervisor\]')
 
     def __init__(self, event_callback: Callable[[str, Dict[str, Any]], None]):
         """
@@ -76,7 +77,7 @@ class OutputInterceptor:
 
     def _extract_label_info(self, text: str) -> Dict[str, Optional[str]]:
         """
-        从输出文本中提取标签信息（team_name 和 worker_name）
+        从输出文本中提取标签信息（team_name、worker_name、is_global_supervisor）
 
         标签格式:
         - [Team: 团队名 | Worker: 成员名]
@@ -84,7 +85,12 @@ class OutputInterceptor:
         - [Global Supervisor]
         - [Worker: 成员名]
         """
-        result = {'team_name': None, 'worker_name': None}
+        result = {'team_name': None, 'worker_name': None, 'is_global_supervisor': False}
+
+        # 检查是否是 Global Supervisor
+        if self.GLOBAL_SUPERVISOR_PATTERN.search(text):
+            result['is_global_supervisor'] = True
+            return result
 
         match = self.LABEL_PATTERN.search(text)
         if match:
@@ -104,7 +110,7 @@ class OutputInterceptor:
 
         text_stripped = text.strip()
 
-        # 提取标签信息（team_name 和 worker_name）
+        # 提取标签信息（team_name、worker_name、is_global_supervisor）
         label_info = self._extract_label_info(text_stripped)
 
         # 按优先级匹配模式
@@ -113,13 +119,16 @@ class OutputInterceptor:
             if match:
                 data = {
                     'raw_text': text_stripped[:500],  # 限制长度
-                    'team_name': label_info['team_name'],
-                    'worker_name': label_info['worker_name']
                 }
 
                 # 提取匹配的名称
                 if match.groups():
                     data['name'] = match.group(1)
+
+                # 添加标签信息（用于外层字段，不放在 data 内部）
+                data['_team_name'] = label_info['team_name']
+                data['_worker_name'] = label_info['worker_name']
+                data['_is_global_supervisor'] = label_info['is_global_supervisor']
 
                 self.event_callback(event_type, data)
                 return
@@ -128,8 +137,9 @@ class OutputInterceptor:
         if len(text_stripped) > 10:  # 忽略太短的输出
             self.event_callback('output', {
                 'content': text_stripped[:1000],  # 限制长度
-                'team_name': label_info['team_name'],
-                'worker_name': label_info['worker_name']
+                '_team_name': label_info['team_name'],
+                '_worker_name': label_info['worker_name'],
+                '_is_global_supervisor': label_info['is_global_supervisor']
             })
 
 

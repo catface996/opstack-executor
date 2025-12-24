@@ -183,6 +183,15 @@ class RunManager:
                 if cancel_flag.is_set():
                     raise InterruptedError("Run was cancelled")
 
+                # 提取标签信息（以 _ 开头的内部字段）
+                team_name = data.pop('_team_name', None)
+                worker_name = data.pop('_worker_name', None) or data.get('name')
+                is_global_supervisor = data.pop('_is_global_supervisor', False)
+
+                # 如果是 Global Supervisor，设置特殊标识
+                if is_global_supervisor:
+                    team_name = 'Global Supervisor'
+
                 # 发送 SSE 事件
                 sse_manager.emit(event_type, data)
 
@@ -191,8 +200,8 @@ class RunManager:
                     run_id,
                     event_type,
                     data,
-                    team_name=data.get('team_name'),
-                    worker_name=data.get('worker_name') or data.get('name')
+                    team_name=team_name,
+                    worker_name=worker_name
                 )
 
             # 使用输出拦截器执行
