@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 配置
-COMPOSE_FILE="docker-compose.yml"
+COMPOSE_FILE="docker-compose.ec2.yml"
 API_CONTAINER="hierarchical-agents-api"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
