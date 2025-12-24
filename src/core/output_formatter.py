@@ -227,8 +227,6 @@ class OutputFormatter:
     @staticmethod
     def print_global_dispatch(team_name: str, reason: str = ""):
         """打印 Global Supervisor 调度团队"""
-        import sys
-        sys.__stderr__.write(f"[DEBUG] print_global_dispatch called for: {team_name}\n")
         label = OutputFormatter.format_source_label('global')
         print(f"\n{label} 📤 DISPATCH: 调度 [{team_name}]")
         if reason:

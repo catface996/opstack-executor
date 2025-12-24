@@ -123,11 +123,16 @@ class LLMCallbackHandler:
                     'content': reasoning_text
                 })
 
-        # 处理输出数据
+        # 处理输出数据（实时发射）
         if data:
             self._buffer.append(data)
             if self.verbose:
                 print(data, end="" if not complete else "\n")
+            # 实时发射 LLM 输出片段
+            if callback and len(data.strip()) > 0:
+                self._emit_event(callback, 'llm_stream', {
+                    'content': data
+                })
 
         # 处理工具调用
         if current_tool_use and current_tool_use.get("name"):
