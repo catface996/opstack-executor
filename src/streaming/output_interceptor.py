@@ -159,7 +159,13 @@ class OutputInterceptor:
                 return
 
         # 非模式匹配的内容作为 output 事件
-        if len(text_stripped) > 10:  # 忽略太短的输出
+        # 只保留有明确来源标签的消息，过滤掉装饰性输出
+        has_source = (
+            label_info['is_global_supervisor'] or
+            label_info['team_name'] or
+            label_info['worker_name']
+        )
+        if len(text_stripped) > 10 and has_source:
             self.event_callback('output', {
                 'content': text_stripped[:1000],  # 限制长度
                 '_is_global_supervisor': label_info['is_global_supervisor'],
