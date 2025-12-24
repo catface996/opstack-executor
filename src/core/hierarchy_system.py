@@ -22,6 +22,9 @@ from dataclasses import dataclass, field
 
 from strands import Agent, tool
 from strands_tools import calculator, http_request
+from ..streaming.llm_callback import (
+    CallerContext, LLMCallbackHandler, create_callback_handler
+)
 from .output_formatter import (
     print_worker_start, print_worker_thinking, print_worker_complete,
     print_worker_warning, print_worker_error,
@@ -413,31 +416,40 @@ class WorkerAgentFactory:
     def _execute_worker(config: WorkerConfig, task: str, call_key: str) -> str:
         """
         执行 Worker 任务
-        
+
         创建 Agent 实例并执行任务，记录执行结果。
-        
+
         Args:
             config: Worker 配置
             task: 任务描述
             call_key: 调用标识符
-            
+
         Returns:
             执行结果字符串
         """
+        # 获取当前团队上下文
+        current_team = OutputFormatter.get_current_team()
+
         # 打印开始信息
-        print_worker_start(config.name, task)
-        print_worker_thinking(config.name)
-        
+        print_worker_start(config.name, task, current_team)
+        print_worker_thinking(config.name, current_team)
+
+        # 创建回调处理器（Worker 上下文）
+        callback_handler = create_callback_handler(
+            CallerContext.worker(config.name, current_team or "Unknown")
+        )
+
         # 创建并执行 Agent
         agent = Agent(
             system_prompt=config.system_prompt,
             tools=config.tools,
             model=config.model,
+            callback_handler=callback_handler,
         )
         response = agent(task)
 
         # 打印完成信息
-        print_worker_complete(config.name)
+        print_worker_complete(config.name, current_team)
         # 将 AgentResult 转为字符串
         response_text = str(response) if response else ""
         result = OutputFormatter.format_result_message(config.name, response_text)
@@ -746,35 +758,43 @@ FAILURE CONDITIONS - YOU WILL FAIL IF:
             # 1. 检查是否已执行
             if executed_msg := TeamSupervisorFactory._check_team_executed(config, tracker):
                 return executed_msg
-            
+
             # 2. 检查是否正在执行
             if active_msg := TeamSupervisorFactory._check_team_active(config, tracker):
                 return active_msg
-            
-            # 3. 开始执行
+
+            # 3. Global Supervisor 发出调度消息
+            print_global_dispatch(config.name)
+
+            # 4. 开始执行
             call_id = tracker.start_call(config.name, task)
-            
+
             try:
-                # 4. 准备执行（打印开始信息）
+                # 5. 准备执行（打印开始信息）
                 worker_names = [w.name for w in config.workers]
                 print_team_start(config.name, call_id, task, worker_names)
                 print_team_thinking(config.name)
-                
-                # 5. 构建增强任务
+
+                # 6. 构建增强任务
                 enhanced_task = TeamSupervisorFactory._build_enhanced_task(
                     task, worker_names, tracker, config, enable_context_sharing
                 )
-                
-                # 6. 执行任务
+
+                # 7. 创建回调处理器（Team Supervisor 上下文）
+                team_callback_handler = create_callback_handler(
+                    CallerContext.team_supervisor(config.name)
+                )
+
+                # 8. 执行任务
                 supervisor = Agent(
                     system_prompt=config.supervisor_prompt,
                     tools=worker_tools,
                     model=config.model,
-                    callback_handler=None
+                    callback_handler=team_callback_handler
                 )
                 response = supervisor(enhanced_task)
 
-                # 7. 完成执行（记录结果）
+                # 9. 完成执行（记录结果）
                 print_team_complete(config.name)
                 # 将 AgentResult 转为字符串
                 response_text = str(response) if response else ""
@@ -943,14 +963,20 @@ Subtask: Explain practical applications in quantum computing.
 - If you respond without calling any team, you have FAILED your mission
 """
         
+        # 创建回调处理器（Global Supervisor 上下文）
+        global_callback_handler = create_callback_handler(
+            CallerContext.global_supervisor()
+        )
+
         # 创建 Global Supervisor Agent
         # 注意：并行/顺序执行主要通过系统提示词来引导 Agent 的行为
         global_supervisor = Agent(
             system_prompt=enhanced_prompt,
             tools=team_tools,
-            model=config.model
+            model=config.model,
+            callback_handler=global_callback_handler
         )
-        
+
         return global_supervisor, team_names
     
     @staticmethod

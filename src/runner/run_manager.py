@@ -15,6 +15,7 @@ from ..db.database import get_db_session
 from ..db.repositories import RunRepository, HierarchyRepository
 from ..streaming.sse_manager import SSERegistry, SSEManager
 from ..streaming.output_interceptor import intercept_output, EventEmitter
+from ..streaming.llm_callback import set_global_event_callback
 
 # 延迟导入 - 避免在模块加载时触发 strands 依赖
 # from ..core.hierarchy_executor import execute_hierarchy
@@ -203,11 +204,18 @@ class RunManager:
                     worker_name=worker_name
                 )
 
-            # 使用输出拦截器执行
-            with intercept_output(event_callback) as interceptor:
-                # 执行层级系统（延迟导入以避免 strands 依赖检查）
-                execute_hierarchy = _get_execute_hierarchy()
-                response = execute_hierarchy(config_dict)
+            # 设置全局事件回调（供 LLM callback handler 使用）
+            set_global_event_callback(event_callback)
+
+            try:
+                # 使用输出拦截器执行
+                with intercept_output(event_callback) as interceptor:
+                    # 执行层级系统（延迟导入以避免 strands 依赖检查）
+                    execute_hierarchy = _get_execute_hierarchy()
+                    response = execute_hierarchy(config_dict)
+            finally:
+                # 清除全局事件回调
+                set_global_event_callback(None)
 
             # 更新结果
             if response.success:
