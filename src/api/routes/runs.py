@@ -92,7 +92,7 @@ def start_run():
                 'hierarchy_id': run.hierarchy_id,
                 'task': run.task,
                 'status': run.status,
-                'stream_url': f'/api/v1/runs/stream',
+                'stream_url': f'/api/executor/v1/runs/stream',
                 'created_at': run.created_at.isoformat() if run.created_at else None
             }
         })

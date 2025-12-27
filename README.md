@@ -87,7 +87,7 @@ export USE_IAM_ROLE=true
 ### 创建层级团队
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/hierarchies/create \
+curl -X POST http://localhost:8080/api/executor/v1/hierarchies/create \
   -H "Content-Type: application/json" \
   -d '{
     "name": "研究团队",
@@ -107,7 +107,7 @@ curl -X POST http://localhost:8080/api/v1/hierarchies/create \
 ### 执行任务
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/runs/start \
+curl -X POST http://localhost:8080/api/executor/v1/runs/start \
   -H "Content-Type: application/json" \
   -d '{
     "hierarchy_id": "your-hierarchy-id",
@@ -158,19 +158,19 @@ hierarchical-agents/
 |------|------|
 | `GET /health` | 健康检查 |
 | `GET /swagger` | Swagger 文档 |
-| `POST /api/v1/models/list` | 列出模型 |
-| `POST /api/v1/models/create` | 创建模型 |
-| `POST /api/v1/hierarchies/list` | 列出层级团队 |
-| `POST /api/v1/hierarchies/create` | 创建层级团队 |
-| `POST /api/v1/hierarchies/get` | 获取层级详情 |
-| `POST /api/v1/hierarchies/update` | 更新层级团队 |
-| `POST /api/v1/hierarchies/delete` | 删除层级团队 |
-| `POST /api/v1/runs/start` | 启动执行 |
-| `POST /api/v1/runs/get` | 获取执行状态 |
-| `POST /api/v1/runs/stream` | 流式获取事件 (SSE) |
-| `POST /api/v1/runs/list` | 获取运行列表 |
-| `POST /api/v1/runs/cancel` | 取消运行 |
-| `POST /api/v1/runs/events` | 获取运行事件列表 |
+| `POST /api/executor/v1/models/list` | 列出模型 |
+| `POST /api/executor/v1/models/create` | 创建模型 |
+| `POST /api/executor/v1/hierarchies/list` | 列出层级团队 |
+| `POST /api/executor/v1/hierarchies/create` | 创建层级团队 |
+| `POST /api/executor/v1/hierarchies/get` | 获取层级详情 |
+| `POST /api/executor/v1/hierarchies/update` | 更新层级团队 |
+| `POST /api/executor/v1/hierarchies/delete` | 删除层级团队 |
+| `POST /api/executor/v1/runs/start` | 启动执行 |
+| `POST /api/executor/v1/runs/get` | 获取执行状态 |
+| `POST /api/executor/v1/runs/stream` | 流式获取事件 (SSE) |
+| `POST /api/executor/v1/runs/list` | 获取运行列表 |
+| `POST /api/executor/v1/runs/cancel` | 取消运行 |
+| `POST /api/executor/v1/runs/events` | 获取运行事件列表 |
 
 ## API 调用时序图
 
@@ -266,7 +266,7 @@ sequenceDiagram
 
 ```bash
 # Step 0: 获取可用模型列表，选择一个模型 ID
-curl -s -X POST http://localhost:8080/api/v1/models/list \
+curl -s -X POST http://localhost:8080/api/executor/v1/models/list \
   -H "Content-Type: application/json" -d '{}' | jq '.data.items[] | {id, name}'
 
 # 示例输出:
@@ -277,7 +277,7 @@ curl -s -X POST http://localhost:8080/api/v1/models/list \
 MODEL_ID="your-model-id-here"
 
 # Step 1: 创建层级团队 (仅需一次)
-HIERARCHY_ID=$(curl -s -X POST http://localhost:8080/api/v1/hierarchies/create \
+HIERARCHY_ID=$(curl -s -X POST http://localhost:8080/api/executor/v1/hierarchies/create \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"研究团队\",
@@ -299,7 +299,7 @@ HIERARCHY_ID=$(curl -s -X POST http://localhost:8080/api/v1/hierarchies/create \
 echo "Created hierarchy: $HIERARCHY_ID"
 
 # Step 2: 启动任务执行
-RUN_ID=$(curl -s -X POST http://localhost:8080/api/v1/runs/start \
+RUN_ID=$(curl -s -X POST http://localhost:8080/api/executor/v1/runs/start \
   -H "Content-Type: application/json" \
   -d "{\"hierarchy_id\": \"$HIERARCHY_ID\", \"task\": \"分析人工智能的发展趋势\"}" \
   | jq -r '.data.id')
@@ -307,12 +307,12 @@ RUN_ID=$(curl -s -X POST http://localhost:8080/api/v1/runs/start \
 echo "Started run: $RUN_ID"
 
 # Step 3: 流式获取执行过程 (SSE) - 需要在启动后立即调用
-curl -N -X POST http://localhost:8080/api/v1/runs/stream \
+curl -N -X POST http://localhost:8080/api/executor/v1/runs/stream \
   -H "Content-Type: application/json" \
   -d "{\"id\": \"$RUN_ID\"}"
 
 # Step 4: 或者轮询获取结果
-curl -s -X POST http://localhost:8080/api/v1/runs/get \
+curl -s -X POST http://localhost:8080/api/executor/v1/runs/get \
   -H "Content-Type: application/json" \
   -d "{\"id\": \"$RUN_ID\"}" | jq
 ```

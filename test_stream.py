@@ -332,7 +332,7 @@ def create_hierarchy_team():
 
     try:
         response = requests.post(
-            f"{API_BASE}/api/v1/hierarchies/create",
+            f"{API_BASE}/api/executor/v1/hierarchies/create",
             json=DEFAULT_HIERARCHY_CONFIG,
             headers={"Content-Type": "application/json"},
             timeout=30
@@ -356,7 +356,7 @@ def get_first_hierarchy():
     """获取第一个可用的层级团队"""
     try:
         response = requests.post(
-            f"{API_BASE}/api/v1/hierarchies/list",
+            f"{API_BASE}/api/executor/v1/hierarchies/list",
             json={"page": 1, "size": 1},
             headers={"Content-Type": "application/json"},
             timeout=5
@@ -372,7 +372,7 @@ def get_first_hierarchy():
 def start_run(task):
     """启动运行"""
     response = requests.post(
-        f"{API_BASE}/api/v1/runs/start",
+        f"{API_BASE}/api/executor/v1/runs/start",
         json={"hierarchy_id": HIERARCHY_ID, "task": task},
         headers={"Content-Type": "application/json"}
     )
@@ -396,7 +396,7 @@ def stream_events(run_id):
     while poll_count < max_polls and last_status in ("pending", "running"):
         try:
             response = requests.post(
-                f"{API_BASE}/api/v1/runs/get",
+                f"{API_BASE}/api/executor/v1/runs/get",
                 json={"id": run_id},
                 headers={"Content-Type": "application/json"}
             )

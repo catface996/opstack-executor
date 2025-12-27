@@ -100,9 +100,9 @@ def create_app(config_name: str = None) -> Flask:
 
     # 注册蓝图
     app.register_blueprint(health_bp)  # /health, /
-    app.register_blueprint(models_bp, url_prefix='/api/v1/models')
-    app.register_blueprint(hierarchies_bp, url_prefix='/api/v1/hierarchies')
-    app.register_blueprint(runs_bp, url_prefix='/api/v1/runs')
+    app.register_blueprint(models_bp, url_prefix='/api/executor/v1/models')
+    app.register_blueprint(hierarchies_bp, url_prefix='/api/executor/v1/hierarchies')
+    app.register_blueprint(runs_bp, url_prefix='/api/executor/v1/runs')
 
     # 保留旧的 /execute 端点（向后兼容）
     register_legacy_routes(app)
@@ -187,9 +187,9 @@ def register_error_handlers(app: Flask):
             'available_endpoints': {
                 'swagger': '/swagger',
                 'health': '/health',
-                'models': '/api/v1/models/*',
-                'hierarchies': '/api/v1/hierarchies/*',
-                'runs': '/api/v1/runs/*',
+                'models': '/api/executor/v1/models/*',
+                'hierarchies': '/api/executor/v1/hierarchies/*',
+                'runs': '/api/executor/v1/runs/*',
                 'legacy_execute': '/execute'
             }
         }), 404
@@ -223,9 +223,9 @@ def initialize_server():
     print("\nAPI Endpoints:")
     print("  Swagger UI:  GET  /swagger")
     print("  Health:      GET  /health")
-    print("  Models:      POST /api/v1/models/{list,get,create,update,delete}")
-    print("  Hierarchies: POST /api/v1/hierarchies/{list,get,create,update,delete}")
-    print("  Runs:        POST /api/v1/runs/{start,list,get,stream,cancel}")
+    print("  Models:      POST /api/executor/v1/models/{list,get,create,update,delete}")
+    print("  Hierarchies: POST /api/executor/v1/hierarchies/{list,get,create,update,delete}")
+    print("  Runs:        POST /api/executor/v1/runs/{start,list,get,stream,cancel}")
     print("  Legacy:      POST /execute (backward compatible)")
     print("=" * 80)
 

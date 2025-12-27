@@ -347,7 +347,7 @@ curl http://localhost:8080/health
 
 ```bash
 # 获取可用模型列表
-curl -s -X POST http://localhost:8080/api/v1/models/list \
+curl -s -X POST http://localhost:8080/api/executor/v1/models/list \
   -H "Content-Type: application/json" -d '{}' | jq '.data.items[] | {id, name}'
 
 # 设置模型 ID (替换为实际的模型 ID)
@@ -357,7 +357,7 @@ MODEL_ID="your-model-id-here"
 ### 3.2 通过 API 创建层级团队
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/hierarchies/create \
+curl -X POST http://localhost:8080/api/executor/v1/hierarchies/create \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"量子力学研究团队\",
@@ -584,7 +584,7 @@ docker exec hierarchical-agents-api env | grep AWS
 
 ```bash
 # 列出所有层级团队
-curl -X POST http://localhost:8080/api/v1/hierarchies/list \
+curl -X POST http://localhost:8080/api/executor/v1/hierarchies/list \
   -H "Content-Type: application/json" \
   -d '{"page": 1, "size": 10}'
 ```

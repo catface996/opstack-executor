@@ -56,8 +56,8 @@ def api_info():
         'endpoints': {
             'health': '/health',
             'swagger': '/swagger',
-            'models': '/api/v1/models/*',
-            'hierarchies': '/api/v1/hierarchies/*',
-            'runs': '/api/v1/runs/*'
+            'models': '/api/executor/v1/models/*',
+            'hierarchies': '/api/executor/v1/hierarchies/*',
+            'runs': '/api/executor/v1/runs/*'
         }
     })
