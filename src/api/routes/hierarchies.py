@@ -2,7 +2,6 @@
 Hierarchies Routes - 层级团队管理路由
 """
 
-import math
 from flask import Blueprint, request, jsonify
 from flasgger import swag_from
 from pydantic import ValidationError
@@ -10,7 +9,7 @@ from pydantic import ValidationError
 from ..schemas.hierarchy_schemas import (
     HierarchyCreateRequest, HierarchyUpdateRequest, HierarchyListRequest
 )
-from ..schemas.common import IdRequest
+from ..schemas.common import IdRequest, build_page_response
 from ...db.database import get_db_session
 from ...db.repositories import HierarchyRepository
 
@@ -57,26 +56,22 @@ def list_hierarchies():
         )
 
         # 返回简化的列表项（不含完整配置）
-        items = []
+        content = []
         for h in hierarchies:
             item = h.to_dict(include_teams=False)
             item['team_count'] = len(h.teams)
-            items.append(item)
+            content.append(item)
 
-        return jsonify({
-            'success': True,
-            'data': {
-                'items': items,
-                'total': total,
-                'page': req.page,
-                'size': req.size,
-                'pages': math.ceil(total / req.size) if req.size > 0 else 0
-            }
-        })
+        return jsonify(build_page_response(
+            content=content,
+            page=req.page,
+            size=req.size,
+            total=total
+        ))
     except ValidationError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'code': 400, 'success': False, 'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'code': 500, 'success': False, 'error': str(e)}), 500
 
 
 @hierarchies_bp.route('/get', methods=['POST'])

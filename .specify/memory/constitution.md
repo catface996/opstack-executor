@@ -1,19 +1,17 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 0.0.0 → 1.0.0
-Modified principles: N/A (initial version)
-Added sections:
-  - Core Principles (5 principles)
-  - API Standards
-  - Development Workflow
-  - Governance
-Removed sections: N/A
+Version change: 1.0.0 → 1.1.0
+Modified principles:
+  - II. RESTful API Design: Added Pagination Request/Response Format (NON-NEGOTIABLE)
+Added sections: None
+Removed sections: None
 Templates requiring updates:
-  - .specify/templates/plan-template.md: ✅ compatible (Constitution Check section exists)
+  - .specify/templates/plan-template.md: ✅ compatible
   - .specify/templates/spec-template.md: ✅ compatible
   - .specify/templates/tasks-template.md: ✅ compatible
-Follow-up TODOs: None
+Follow-up TODOs:
+  - Check current pagination implementation for compliance
 -->
 
 # Op-Stack Executor Constitution
@@ -70,6 +68,45 @@ All API endpoints MUST follow RESTful conventions with POST-based operations for
   "code": 400001
 }
 ```
+
+**Pagination Request Format (NON-NEGOTIABLE):**
+```json
+{
+  "page": 1,
+  "size": 20,
+  "tenantId": null,
+  "traceId": null,
+  "userId": null
+}
+```
+- `page`: 页码（从 1 开始），默认 1，最小 1
+- `size`: 每页大小，默认 20，范围 1-100
+- `tenantId`, `traceId`, `userId`: 网关注入字段（hidden）
+
+**Pagination Response Format (NON-NEGOTIABLE):**
+```json
+{
+  "code": 0,
+  "message": "success",
+  "success": true,
+  "data": {
+    "content": [],
+    "page": 1,
+    "size": 10,
+    "totalElements": 100,
+    "totalPages": 10,
+    "first": true,
+    "last": false
+  }
+}
+```
+- `content`: 数据列表
+- `page`: 当前页码（从 1 开始）
+- `size`: 每页大小
+- `totalElements`: 总记录数
+- `totalPages`: 总页数
+- `first`: 是否为第一页
+- `last`: 是否为最后一页
 
 ### III. Hierarchical Agent Architecture
 
@@ -154,4 +191,4 @@ This constitution establishes the foundational rules for the op-stack-executor p
 - Code review MUST check API response format consistency
 - Violations require explicit justification in PR description
 
-**Version**: 1.0.0 | **Ratified**: 2025-12-27 | **Last Amended**: 2025-12-27
+**Version**: 1.1.0 | **Ratified**: 2025-12-27 | **Last Amended**: 2025-12-27

@@ -2,7 +2,6 @@
 Models Routes - AI 模型管理路由
 """
 
-import math
 from flask import Blueprint, request, jsonify
 from flasgger import swag_from
 from pydantic import ValidationError
@@ -10,7 +9,7 @@ from pydantic import ValidationError
 from ..schemas.model_schemas import (
     ModelCreateRequest, ModelUpdateRequest, ModelListRequest
 )
-from ..schemas.common import IdRequest
+from ..schemas.common import IdRequest, build_page_response
 from ...db.database import get_db_session
 from ...db.repositories import ModelRepository
 
@@ -69,20 +68,16 @@ def list_models():
             is_active=req.is_active
         )
 
-        return jsonify({
-            'success': True,
-            'data': {
-                'items': [m.to_dict() for m in models],
-                'total': total,
-                'page': req.page,
-                'size': req.size,
-                'pages': math.ceil(total / req.size) if req.size > 0 else 0
-            }
-        })
+        return jsonify(build_page_response(
+            content=[m.to_dict() for m in models],
+            page=req.page,
+            size=req.size,
+            total=total
+        ))
     except ValidationError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'code': 400, 'success': False, 'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'code': 500, 'success': False, 'error': str(e)}), 500
 
 
 @models_bp.route('/get', methods=['POST'])

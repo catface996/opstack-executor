@@ -2,7 +2,6 @@
 Runs Routes - 运行管理路由
 """
 
-import math
 from flask import Blueprint, request, jsonify
 from flasgger import swag_from
 from pydantic import ValidationError
@@ -10,7 +9,7 @@ from pydantic import ValidationError
 from ..schemas.run_schemas import (
     RunStartRequest, RunListRequest, RunStreamRequest, RunCancelRequest
 )
-from ..schemas.common import IdRequest
+from ..schemas.common import IdRequest, build_page_response
 from ...db.database import get_db_session, db
 from ...db.repositories import RunRepository
 from ...runner.run_manager import RunManager
@@ -140,20 +139,16 @@ def list_runs():
             status=req.status
         )
 
-        return jsonify({
-            'success': True,
-            'data': {
-                'items': [r.to_dict() for r in runs],
-                'total': total,
-                'page': req.page,
-                'size': req.size,
-                'pages': math.ceil(total / req.size) if req.size > 0 else 0
-            }
-        })
+        return jsonify(build_page_response(
+            content=[r.to_dict() for r in runs],
+            page=req.page,
+            size=req.size,
+            total=total
+        ))
     except ValidationError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'code': 400, 'success': False, 'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'code': 500, 'success': False, 'error': str(e)}), 500
 
 
 @runs_bp.route('/get', methods=['POST'])
