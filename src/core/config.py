@@ -28,6 +28,11 @@ class Config:
             cls._instance = super().__new__(cls)
         return cls._instance
     
+    # 服务器配置常量（NON-NEGOTIABLE，禁止通过环境变量修改）
+    SERVER_HOST: str = "0.0.0.0"
+    SERVER_PORT: int = 8082  # 开发环境固定端口，禁止修改
+    DEBUG_MODE: bool = False
+
     def __init__(self):
         if not self._initialized:
             self._aws_bedrock_api_key: Optional[str] = None

@@ -1,17 +1,16 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
+Version change: 1.2.0 → 1.3.0
 Modified principles:
-  - II. RESTful API Design: Added Pagination Request/Response Format (NON-NEGOTIABLE)
-Added sections: None
+  - Added VII. Database Table Naming Convention (NON-NEGOTIABLE)
+Added sections: Database Table Naming Convention
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ compatible
   - .specify/templates/spec-template.md: ✅ compatible
   - .specify/templates/tasks-template.md: ✅ compatible
-Follow-up TODOs:
-  - Check current pagination implementation for compliance
+Follow-up TODOs: None
 -->
 
 # Op-Stack Executor Constitution
@@ -144,6 +143,59 @@ The system MUST support multiple database backends without code changes.
 
 **Rationale:** Deployment flexibility across different infrastructure environments.
 
+### VI. Server Configuration (NON-NEGOTIABLE)
+
+Development environment server configuration MUST be fixed and controlled via configuration file, NOT environment variables.
+
+**Rules:**
+- Development server port MUST be `8082` - 禁止修改
+- Server host MUST be `0.0.0.0`
+- Debug mode MUST be `false` in production
+- Port configuration MUST be defined in `src/core/config.py` as class constants
+- Environment variables MUST NOT override server port configuration
+
+**Configuration Location:**
+```python
+# src/core/config.py
+class Config:
+    SERVER_HOST: str = "0.0.0.0"
+    SERVER_PORT: int = 8082  # 开发环境固定端口，禁止修改
+    DEBUG_MODE: bool = False
+```
+
+**Rationale:** Fixed port configuration prevents port conflicts in development environments and ensures consistent service discovery across the team. Environment variable overrides are prohibited to maintain deployment consistency.
+
+**Violations:**
+- Using `os.environ.get('PORT')` for server port - PROHIBITED
+- Hardcoding different port values - PROHIBITED
+- Adding command-line arguments for port - PROHIBITED
+
+### VII. Database Table Naming Convention (NON-NEGOTIABLE)
+
+Database table names MUST use **singular form**, NOT plural.
+
+**Rules:**
+- Table names MUST be singular (e.g., `ai_model`, NOT `ai_models`)
+- Use snake_case for table names
+- Table name should match the entity it represents
+- Exceptions require explicit justification in code comments
+
+**Standard Table Names:**
+| Entity | Table Name | ~~Prohibited~~ |
+|--------|------------|----------------|
+| AI Model | `ai_model` | ~~ai_models~~ |
+| Hierarchy Team | `hierarchy_team` | ~~hierarchy_teams~~ |
+| Team | `team` | ~~teams~~ |
+| Worker | `worker` | ~~workers~~ |
+| Execution Run | `execution_run` | ~~execution_runs~~ |
+| Execution Event | `execution_event` | ~~execution_events~~ |
+
+**Rationale:** Singular table names align with ORM entity class naming conventions, improve code readability, and maintain consistency with Spring/Java ecosystem conventions used in op-stack-service.
+
+**Violations:**
+- Using plural table names (e.g., `users`, `orders`) - PROHIBITED
+- Inconsistent naming within the same project - PROHIBITED
+
 ## API Standards
 
 ### Endpoint Categories
@@ -191,4 +243,4 @@ This constitution establishes the foundational rules for the op-stack-executor p
 - Code review MUST check API response format consistency
 - Violations require explicit justification in PR description
 
-**Version**: 1.1.0 | **Ratified**: 2025-12-27 | **Last Amended**: 2025-12-27
+**Version**: 1.3.0 | **Ratified**: 2025-12-27 | **Last Amended**: 2025-12-28

@@ -32,7 +32,7 @@ class RunStatus(str, Enum):
 
 class AIModel(Base):
     """AI 模型配置"""
-    __tablename__ = 'ai_models'
+    __tablename__ = 'ai_model'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(100), nullable=False, unique=True, comment='模型显示名称')
@@ -71,7 +71,7 @@ class AIModel(Base):
 
 class HierarchyTeam(Base):
     """层级团队配置 - 主表"""
-    __tablename__ = 'hierarchy_teams'
+    __tablename__ = 'hierarchy_team'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(100), nullable=False, unique=True, comment='层级团队名称')
@@ -83,7 +83,7 @@ class HierarchyTeam(Base):
     enable_context_sharing = Column(Boolean, default=False, comment='是否启用上下文共享')
 
     # Global Supervisor LLM 配置
-    global_model_id = Column(String(36), ForeignKey('ai_models.id'), nullable=True)
+    global_model_id = Column(String(36), ForeignKey('ai_model.id'), nullable=True)
     global_temperature = Column(Float, default=0.7, comment='Global Supervisor 温度参数')
     global_max_tokens = Column(Integer, default=2048, comment='Global Supervisor 最大 token 数')
     global_top_p = Column(Float, default=0.9, comment='Global Supervisor Top-P 参数')
@@ -137,10 +137,10 @@ class HierarchyTeam(Base):
 
 class Team(Base):
     """团队配置"""
-    __tablename__ = 'teams'
+    __tablename__ = 'team'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    hierarchy_id = Column(String(36), ForeignKey('hierarchy_teams.id'), nullable=False)
+    hierarchy_id = Column(String(36), ForeignKey('hierarchy_team.id'), nullable=False)
 
     name = Column(String(100), nullable=False, comment='团队名称')
     supervisor_prompt = Column(Text, nullable=False, comment='团队 Supervisor 提示词')
@@ -151,7 +151,7 @@ class Team(Base):
     order_index = Column(Integer, default=0, comment='团队顺序')
 
     # Team Supervisor LLM 配置
-    model_id = Column(String(36), ForeignKey('ai_models.id'), nullable=True)
+    model_id = Column(String(36), ForeignKey('ai_model.id'), nullable=True)
     temperature = Column(Float, default=0.7, comment='Team Supervisor 温度参数')
     max_tokens = Column(Integer, default=2048, comment='Team Supervisor 最大 token 数')
     top_p = Column(Float, default=0.9, comment='Team Supervisor Top-P 参数')
@@ -202,10 +202,10 @@ class Team(Base):
 
 class Worker(Base):
     """Worker Agent 配置"""
-    __tablename__ = 'workers'
+    __tablename__ = 'worker'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    team_id = Column(String(36), ForeignKey('teams.id'), nullable=False)
+    team_id = Column(String(36), ForeignKey('team.id'), nullable=False)
 
     name = Column(String(100), nullable=False, comment='Worker 名称')
     role = Column(String(200), nullable=False, comment='角色描述')
@@ -216,7 +216,7 @@ class Worker(Base):
     order_index = Column(Integer, default=0, comment='Worker 顺序')
 
     # Worker LLM 配置
-    model_id = Column(String(36), ForeignKey('ai_models.id'), nullable=True)
+    model_id = Column(String(36), ForeignKey('ai_model.id'), nullable=True)
     temperature = Column(Float, default=0.7, comment='Worker 温度参数')
     max_tokens = Column(Integer, default=2048, comment='Worker 最大 token 数')
     top_p = Column(Float, default=0.9, comment='Worker Top-P 参数')
@@ -263,10 +263,10 @@ class Worker(Base):
 
 class ExecutionRun(Base):
     """执行运行记录"""
-    __tablename__ = 'execution_runs'
+    __tablename__ = 'execution_run'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    hierarchy_id = Column(String(36), ForeignKey('hierarchy_teams.id'), nullable=False)
+    hierarchy_id = Column(String(36), ForeignKey('hierarchy_team.id'), nullable=False)
 
     # 任务信息
     task = Column(Text, nullable=False, comment='任务描述')
@@ -312,10 +312,10 @@ class ExecutionRun(Base):
 
 class ExecutionEvent(Base):
     """执行事件记录"""
-    __tablename__ = 'execution_events'
+    __tablename__ = 'execution_event'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    run_id = Column(String(36), ForeignKey('execution_runs.id'), nullable=False)
+    run_id = Column(String(36), ForeignKey('execution_run.id'), nullable=False)
 
     # 事件信息
     event_type = Column(String(50), nullable=False, comment='事件类型')

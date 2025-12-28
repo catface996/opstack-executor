@@ -218,11 +218,12 @@ Authorization: Bearer <token>
     def openapi_docs():
         """返回纯 OpenAPI 3.0 格式的 API 文档"""
         import requests
+        from ..core.config import Config
 
         # 从内部 Swagger 端点获取生成的 spec
         try:
-            # 直接从内部端点获取 spec
-            internal_url = f"http://127.0.0.1:{os.environ.get('PORT', 7070)}/swagger-internal.json"
+            # 直接从内部端点获取 spec（使用配置中的固定端口）
+            internal_url = f"http://127.0.0.1:{Config.SERVER_PORT}/swagger-internal.json"
             resp = requests.get(internal_url, timeout=5)
             spec = resp.json()
         except Exception:
@@ -435,11 +436,14 @@ def initialize_server():
 
 def main():
     """主函数 - 启动 HTTP 服务器"""
+    from ..core.config import Config
+
     initialize_server()
 
-    port = int(os.environ.get('PORT', 8080))
-    host = os.environ.get('HOST', '0.0.0.0')
-    debug = os.environ.get('DEBUG', 'false').lower() == 'true'
+    # 使用配置类中的固定值（NON-NEGOTIABLE，禁止通过环境变量修改）
+    port = Config.SERVER_PORT
+    host = Config.SERVER_HOST
+    debug = Config.DEBUG_MODE
 
     print(f"\nStarting server on {host}:{port}")
     print(f"Debug mode: {debug}")
