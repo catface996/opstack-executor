@@ -5,7 +5,7 @@ Run Repository - 运行记录数据访问层
 import time
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from ..models import ExecutionRun, ExecutionEvent, RunStatus
@@ -25,14 +25,9 @@ class RunRepository:
         self.session.refresh(run)
         return run
 
-    def get_by_id(self, run_id: str, include_events: bool = False) -> Optional[ExecutionRun]:
+    def get_by_id(self, run_id: str) -> Optional[ExecutionRun]:
         """根据 ID 获取运行记录"""
-        query = self.session.query(ExecutionRun)
-
-        if include_events:
-            query = query.options(joinedload(ExecutionRun.events))
-
-        return query.filter(ExecutionRun.id == run_id).first()
+        return self.session.query(ExecutionRun).filter(ExecutionRun.id == run_id).first()
 
     def list(
         self,
@@ -166,11 +161,14 @@ class RunRepository:
         return True
 
     def delete(self, run_id: str) -> bool:
-        """删除运行记录（级联删除事件）"""
+        """删除运行记录及其关联事件"""
         run = self.get_by_id(run_id)
         if not run:
             return False
 
+        # 先删除关联的事件
+        self.session.query(ExecutionEvent).filter(ExecutionEvent.run_id == run_id).delete()
+        # 再删除运行记录
         self.session.delete(run)
         self.session.commit()
         return True

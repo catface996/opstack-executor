@@ -72,7 +72,7 @@ class ExecutionRun(Base):
     __tablename__ = 'execution_run'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    hierarchy_id = Column(String(36), ForeignKey('hierarchy_team.id'), nullable=False)
+    hierarchy_id = Column(String(36), nullable=False, comment='关联的层级团队 ID')
 
     # 任务信息
     task = Column(Text, nullable=False, comment='任务描述')
@@ -91,14 +91,9 @@ class ExecutionRun(Base):
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # 关系
-    hierarchy = relationship("HierarchyTeam")
-    events = relationship("ExecutionEvent", back_populates="run", cascade="all, delete-orphan",
-                         order_by="ExecutionEvent.timestamp, ExecutionEvent.sequence")
-
-    def to_dict(self, include_events: bool = False) -> dict:
+    def to_dict(self) -> dict:
         """转换为字典"""
-        result = {
+        return {
             'id': self.id,
             'hierarchy_id': self.hierarchy_id,
             'task': self.task,
@@ -111,9 +106,6 @@ class ExecutionRun(Base):
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
-        if include_events:
-            result['events'] = [event.to_dict() for event in self.events]
-        return result
 
 
 class ExecutionEvent(Base):
@@ -133,7 +125,7 @@ class ExecutionEvent(Base):
     __tablename__ = 'execution_event'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    run_id = Column(String(36), ForeignKey('execution_run.id'), nullable=False)
+    run_id = Column(String(36), nullable=False, comment='关联的运行 ID')
 
     # 时间和顺序
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -151,9 +143,6 @@ class ExecutionEvent(Base):
 
     # 事件数据
     data = Column(JSON, nullable=True, comment='事件数据')
-
-    # 关系
-    run = relationship("ExecutionRun", back_populates="events")
 
     def to_dict(self) -> dict:
         """转换为字典"""
