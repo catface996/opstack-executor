@@ -21,6 +21,8 @@ from typing import Dict, List, Any, Optional, Callable, Set
 from dataclasses import dataclass, field
 
 from strands import Agent, tool
+
+
 from strands_tools import calculator, http_request
 from ..streaming.llm_callback import (
     CallerContext, LLMCallbackHandler, create_callback_handler
@@ -34,6 +36,28 @@ from .output_formatter import (
     print_global_summary, print_global_complete,
     set_current_team, OutputFormatter
 )
+
+
+# ============================================================================
+# 辅助函数
+# ============================================================================
+
+def generate_deterministic_id(*parts: str) -> str:
+    """
+    生成确定性 ID
+
+    基于输入的各部分生成一个确定性的短 ID，
+    同样的输入始终产生相同的输出。
+
+    Args:
+        *parts: 用于生成 ID 的字符串部分
+
+    Returns:
+        12 字符的确定性 ID
+    """
+    combined = ":".join(str(p) for p in parts if p)
+    hash_obj = hashlib.sha256(combined.encode('utf-8'))
+    return hash_obj.hexdigest()[:12]
 
 
 # ============================================================================
@@ -1178,28 +1202,33 @@ class HierarchyBuilder:
             self（支持链式调用）
         """
         # 创建 Worker 配置列表
-        worker_configs = [
-            WorkerConfig(
+        worker_configs = []
+        for w in workers:
+            worker_agent_id = w.get('agent_id', '')
+            # 优先使用 agent_id，没有则生成确定性 ID
+            worker_id = worker_agent_id or generate_deterministic_id('worker', name, w['name'])
+            worker_configs.append(WorkerConfig(
                 name=w['name'],
                 role=w['role'],
                 system_prompt=w['system_prompt'],
-                id=w.get('id', str(uuid.uuid4())),  # 使用提供的 id 或生成新的
-                agent_id=w.get('agent_id', ''),  # 使用提供的 agent_id
-                user_message=w.get('user_message'),  # 预定义的用户消息
+                id=worker_id,
+                agent_id=worker_agent_id,
+                user_message=w.get('user_message'),
                 tools=w.get('tools', []),
                 model=w.get('model'),
                 temperature=w.get('temperature', 0.7),
                 max_tokens=w.get('max_tokens', 2048)
-            )
-            for w in workers
-        ]
+            ))
+
+        # 团队 ID：优先使用 agent_id，没有则生成确定性 ID
+        team_id = agent_id or generate_deterministic_id('team', name)
 
         # 创建团队配置
         team_config = TeamConfig(
             name=name,
             system_prompt=system_prompt,
             workers=worker_configs,
-            id=str(uuid.uuid4()),  # 生成团队 UUID
+            id=team_id,
             agent_id=agent_id,
             user_message=user_message,
             model=model,
@@ -1219,11 +1248,14 @@ class HierarchyBuilder:
         Returns:
             (Global Supervisor Agent, CallTracker 或 None, 团队名称列表)
         """
+        # Global ID：优先使用 agent_id，没有则生成确定性 ID
+        global_id = self.global_agent_id or generate_deterministic_id('global_supervisor')
+
         # 创建全局配置
         config = GlobalConfig(
             system_prompt=self.global_system_prompt,
             teams=self.teams,
-            id=str(uuid.uuid4()),  # 生成全局配置 UUID
+            id=global_id,
             agent_id=self.global_agent_id,
             user_message=self.global_user_message,
             model=self.global_model,
