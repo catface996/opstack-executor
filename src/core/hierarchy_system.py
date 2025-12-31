@@ -358,6 +358,8 @@ class TeamConfig:
     model: Optional[Any] = None
     prevent_duplicate: bool = True
     share_context: bool = False  # 是否接收其他团队的上下文
+    temperature: float = 0.7
+    max_tokens: int = 2048
 
 
 @dataclass
@@ -372,6 +374,8 @@ class GlobalConfig:
     enable_tracking: bool = True
     enable_context_sharing: bool = False  # 全局开关：是否启用跨团队上下文共享
     parallel_execution: bool = False  # 团队执行模式：False=顺序执行，True=并行执行
+    temperature: float = 0.7
+    max_tokens: int = 2048
 
 
 # ============================================================================
@@ -1104,6 +1108,8 @@ class HierarchyBuilder:
         self.global_user_message: Optional[str] = None
         self.global_model: Optional[Any] = None
         self.global_agent_id: str = ""  # Global Supervisor 的 agent_id
+        self.global_temperature: float = 0.7  # Global Supervisor LLM 温度参数
+        self.global_max_tokens: int = 2048  # Global Supervisor LLM 最大 token 数
         self.enable_tracking = enable_tracking
         self.enable_context_sharing = enable_context_sharing
         self.parallel_execution = parallel_execution
@@ -1151,16 +1157,42 @@ class HierarchyBuilder:
     def set_global_model(self, model: Any) -> 'HierarchyBuilder':
         """
         设置全局协调者的模型
-        
+
         Args:
             model: 模型实例
-            
+
         Returns:
             self（支持链式调用）
         """
         self.global_model = model
         return self
-    
+
+    def set_global_temperature(self, temperature: float) -> 'HierarchyBuilder':
+        """
+        设置全局协调者的 LLM 温度参数
+
+        Args:
+            temperature: 温度参数 (0.0-2.0)
+
+        Returns:
+            self（支持链式调用）
+        """
+        self.global_temperature = temperature
+        return self
+
+    def set_global_max_tokens(self, max_tokens: int) -> 'HierarchyBuilder':
+        """
+        设置全局协调者的 LLM 最大 token 数
+
+        Args:
+            max_tokens: 最大 token 数
+
+        Returns:
+            self（支持链式调用）
+        """
+        self.global_max_tokens = max_tokens
+        return self
+
     def set_parallel_execution(self, parallel: bool) -> 'HierarchyBuilder':
         """
         设置团队执行模式
@@ -1183,7 +1215,9 @@ class HierarchyBuilder:
         user_message: Optional[str] = None,
         model: Optional[Any] = None,
         prevent_duplicate: bool = True,
-        share_context: bool = False
+        share_context: bool = False,
+        temperature: float = 0.7,
+        max_tokens: int = 2048
     ) -> 'HierarchyBuilder':
         """
         添加一个团队
@@ -1197,6 +1231,8 @@ class HierarchyBuilder:
             model: 团队使用的模型（可选）
             prevent_duplicate: 是否防止重复调用
             share_context: 是否接收其他团队的上下文
+            temperature: Team Supervisor LLM 温度参数
+            max_tokens: Team Supervisor LLM 最大 token 数
 
         Returns:
             self（支持链式调用）
@@ -1233,7 +1269,9 @@ class HierarchyBuilder:
             user_message=user_message,
             model=model,
             prevent_duplicate=prevent_duplicate,
-            share_context=share_context
+            share_context=share_context,
+            temperature=temperature,
+            max_tokens=max_tokens
         )
 
         self.teams.append(team_config)
@@ -1261,7 +1299,9 @@ class HierarchyBuilder:
             model=self.global_model,
             enable_tracking=self.enable_tracking,
             enable_context_sharing=self.enable_context_sharing,
-            parallel_execution=self.parallel_execution
+            parallel_execution=self.parallel_execution,
+            temperature=self.global_temperature,
+            max_tokens=self.global_max_tokens
         )
 
         # 设置执行追踪器

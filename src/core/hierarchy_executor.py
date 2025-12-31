@@ -133,6 +133,9 @@ class HierarchyExecutor:
         self.builder.set_global_system_prompt(config.global_prompt)
         if config.global_agent_id:
             self.builder.set_global_agent_id(config.global_agent_id)
+        # 设置 Global Supervisor LLM 参数
+        self.builder.set_global_temperature(config.global_temperature)
+        self.builder.set_global_max_tokens(config.global_max_tokens)
 
         # 添加所有团队
         for team_config in config.teams:
@@ -158,7 +161,9 @@ class HierarchyExecutor:
                 workers=workers,
                 agent_id=team_config.agent_id or '',  # Team Supervisor 的 agent_id
                 prevent_duplicate=team_config.prevent_duplicate,
-                share_context=team_config.share_context
+                share_context=team_config.share_context,
+                temperature=team_config.temperature,
+                max_tokens=team_config.max_tokens
             )
         
         # 构建系统
