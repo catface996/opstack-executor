@@ -12,6 +12,8 @@ from ..schemas.hierarchy_schemas import (
 from ..schemas.common import IdRequest, build_page_response
 from ...db.database import get_db_session
 from ...db.repositories import HierarchyRepository
+from ...db.repositories.hierarchy_repo import check_agent_ids_unique_in_hierarchy
+
 
 hierarchies_bp = Blueprint('hierarchies', __name__)
 
@@ -55,11 +57,21 @@ def list_hierarchies():
             is_active=req.is_active
         )
 
-        # 返回简化的列表项（不含完整配置）
+        # 返回简化的列表项
         content = []
         for h in hierarchies:
-            item = h.to_dict(include_teams=False)
-            item['team_count'] = len(h.teams)
+            config = h.config or {}
+            item = {
+                'id': h.id,
+                'name': h.name,
+                'description': h.description,
+                'execution_mode': config.get('execution_mode', 'sequential'),
+                'team_count': len(config.get('teams', [])),
+                'is_active': h.is_active,
+                'version': h.version,
+                'created_at': h.created_at.isoformat() if h.created_at else None,
+                'updated_at': h.updated_at.isoformat() if h.updated_at else None,
+            }
             content.append(item)
 
         return jsonify(build_page_response(
@@ -78,7 +90,7 @@ def list_hierarchies():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '获取层级团队详情',
-    'description': '获取完整的层级团队配置，包含所有团队和 Worker',
+    'description': '获取完整的层级团队配置',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -128,63 +140,54 @@ def get_hierarchy():
         'required': True,
         'schema': {
             'type': 'object',
-            'required': ['name', 'global_prompt', 'teams'],
+            'required': ['name', 'global_supervisor_agent', 'teams'],
             'properties': {
                 'name': {'type': 'string'},
                 'description': {'type': 'string'},
-                'global_prompt': {'type': 'string'},
                 'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel']},
                 'enable_context_sharing': {'type': 'boolean'},
-                'llm_config': {
+                'global_supervisor_agent': {
                     'type': 'object',
-                    'description': 'Global Supervisor LLM 配置',
+                    'required': ['system_prompt'],
                     'properties': {
-                        'model_id': {'type': 'string'},
-                        'temperature': {'type': 'number', 'default': 0.7},
-                        'max_tokens': {'type': 'integer', 'default': 2048},
-                        'top_p': {'type': 'number', 'default': 0.9}
+                        'agent_id': {'type': 'string'},
+                        'system_prompt': {'type': 'string'},
+                        'user_message': {'type': 'string'},
+                        'llm_config': {'type': 'object'}
                     }
                 },
                 'teams': {
                     'type': 'array',
                     'items': {
                         'type': 'object',
-                        'required': ['name', 'supervisor_prompt', 'workers'],
+                        'required': ['name', 'team_supervisor_agent', 'workers'],
                         'properties': {
                             'name': {'type': 'string'},
-                            'supervisor_prompt': {'type': 'string'},
-                            'prevent_duplicate': {'type': 'boolean'},
-                            'share_context': {'type': 'boolean'},
-                            'llm_config': {
+                            'team_supervisor_agent': {
                                 'type': 'object',
-                                'description': 'Team Supervisor LLM 配置',
+                                'required': ['system_prompt'],
                                 'properties': {
-                                    'model_id': {'type': 'string'},
-                                    'temperature': {'type': 'number', 'default': 0.7},
-                                    'max_tokens': {'type': 'integer', 'default': 2048},
-                                    'top_p': {'type': 'number', 'default': 0.9}
+                                    'agent_id': {'type': 'string'},
+                                    'system_prompt': {'type': 'string'},
+                                    'user_message': {'type': 'string'},
+                                    'llm_config': {'type': 'object'}
                                 }
                             },
+                            'prevent_duplicate': {'type': 'boolean'},
+                            'share_context': {'type': 'boolean'},
                             'workers': {
                                 'type': 'array',
                                 'items': {
                                     'type': 'object',
                                     'required': ['name', 'role', 'system_prompt'],
                                     'properties': {
+                                        'agent_id': {'type': 'string'},
                                         'name': {'type': 'string'},
                                         'role': {'type': 'string'},
                                         'system_prompt': {'type': 'string'},
-                                        'tools': {'type': 'array', 'items': {'type': 'string'}},
-                                        'llm_config': {
-                                            'type': 'object',
-                                            'description': 'Worker LLM 配置',
-                                            'properties': {
-                                                'model_id': {'type': 'string'},
-                                                'temperature': {'type': 'number', 'default': 0.7},
-                                                'max_tokens': {'type': 'integer', 'default': 2048},
-                                                'top_p': {'type': 'number', 'default': 0.9}
-                                            }
-                                        }
+                                        'user_message': {'type': 'string'},
+                                        'tools': {'type': 'array'},
+                                        'llm_config': {'type': 'object'}
                                     }
                                 }
                             }
@@ -211,13 +214,29 @@ def create_hierarchy():
         if repo.get_by_name(req.name):
             return jsonify({'success': False, 'error': f'层级团队名称 "{req.name}" 已存在'}), 400
 
-        # 转换为字典并创建
-        create_data = req.model_dump()
-        # 转换 teams 中的 workers
-        for team in create_data['teams']:
-            team['workers'] = [w for w in team['workers']]
+        # 构建 config JSON
+        config = {
+            'execution_mode': req.execution_mode,
+            'enable_context_sharing': req.enable_context_sharing,
+            'global_supervisor_agent': req.global_supervisor_agent.model_dump(),
+            'teams': [team.model_dump() for team in req.teams]
+        }
 
-        hierarchy = repo.create(create_data)
+        # 验证 agent_id 唯一性
+        is_unique, duplicate_id = check_agent_ids_unique_in_hierarchy(config)
+        if not is_unique:
+            return jsonify({
+                'success': False,
+                'error': f"agent_id '{duplicate_id}' is duplicated within this hierarchy",
+                'code': 400001
+            }), 400
+
+        # 创建 Hierarchy
+        hierarchy = repo.create(
+            name=req.name,
+            description=req.description,
+            config=config
+        )
 
         return jsonify({
             'success': True,
@@ -234,7 +253,6 @@ def create_hierarchy():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '更新层级团队',
-    'description': '更新层级团队配置。如果提供 teams 字段，将完整替换团队配置',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -243,70 +261,14 @@ def create_hierarchy():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string', 'description': '层级团队 ID'},
-                'name': {'type': 'string', 'description': '层级团队名称'},
-                'description': {'type': 'string', 'description': '描述'},
-                'global_prompt': {'type': 'string', 'description': '全局 Supervisor 提示词'},
-                'execution_mode': {'type': 'string', 'enum': ['sequential', 'parallel'], 'description': '执行模式'},
-                'enable_context_sharing': {'type': 'boolean', 'description': '启用上下文共享'},
-                'llm_config': {
-                    'type': 'object',
-                    'description': 'Global Supervisor LLM 配置',
-                    'properties': {
-                        'model_id': {'type': 'string', 'description': '模型 ID'},
-                        'temperature': {'type': 'number', 'default': 0.7, 'description': '温度参数'},
-                        'max_tokens': {'type': 'integer', 'default': 2048, 'description': '最大 token 数'},
-                        'top_p': {'type': 'number', 'default': 0.9, 'description': 'Top-P 参数'}
-                    }
-                },
-                'is_active': {'type': 'boolean', 'description': '是否激活'},
-                'teams': {
-                    'type': 'array',
-                    'description': '团队列表（提供时将完整替换）',
-                    'items': {
-                        'type': 'object',
-                        'required': ['name', 'supervisor_prompt', 'workers'],
-                        'properties': {
-                            'name': {'type': 'string', 'description': '团队名称'},
-                            'supervisor_prompt': {'type': 'string', 'description': 'Team Supervisor 提示词'},
-                            'prevent_duplicate': {'type': 'boolean', 'default': True},
-                            'share_context': {'type': 'boolean', 'default': False},
-                            'llm_config': {
-                                'type': 'object',
-                                'description': 'Team Supervisor LLM 配置',
-                                'properties': {
-                                    'model_id': {'type': 'string'},
-                                    'temperature': {'type': 'number', 'default': 0.7},
-                                    'max_tokens': {'type': 'integer', 'default': 2048},
-                                    'top_p': {'type': 'number', 'default': 0.9}
-                                }
-                            },
-                            'workers': {
-                                'type': 'array',
-                                'items': {
-                                    'type': 'object',
-                                    'required': ['name', 'role', 'system_prompt'],
-                                    'properties': {
-                                        'name': {'type': 'string'},
-                                        'role': {'type': 'string'},
-                                        'system_prompt': {'type': 'string'},
-                                        'tools': {'type': 'array', 'items': {'type': 'string'}},
-                                        'llm_config': {
-                                            'type': 'object',
-                                            'description': 'Worker LLM 配置',
-                                            'properties': {
-                                                'model_id': {'type': 'string'},
-                                                'temperature': {'type': 'number', 'default': 0.7},
-                                                'max_tokens': {'type': 'integer', 'default': 2048},
-                                                'top_p': {'type': 'number', 'default': 0.9}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                'id': {'type': 'string'},
+                'name': {'type': 'string'},
+                'description': {'type': 'string'},
+                'execution_mode': {'type': 'string'},
+                'enable_context_sharing': {'type': 'boolean'},
+                'global_supervisor_agent': {'type': 'object'},
+                'teams': {'type': 'array'},
+                'is_active': {'type': 'boolean'}
             }
         }
     }],
@@ -323,20 +285,49 @@ def update_hierarchy():
 
         repo = get_repo()
 
-        # 过滤掉 None 值
-        update_data = {k: v for k, v in req.model_dump().items() if v is not None and k != 'id'}
-
         # 检查名称是否与其他层级重复
-        if 'name' in update_data:
-            existing = repo.get_by_name(update_data['name'])
+        if req.name:
+            existing = repo.get_by_name(req.name)
             if existing and existing.id != req.id:
-                return jsonify({'success': False, 'error': f'层级团队名称 "{update_data["name"]}" 已存在'}), 400
+                return jsonify({'success': False, 'error': f'层级团队名称 "{req.name}" 已存在'}), 400
 
-        # 转换 teams 数据
-        if 'teams' in update_data and update_data['teams'] is not None:
-            for team in update_data['teams']:
-                if isinstance(team, dict) and 'workers' in team:
-                    team['workers'] = [w if isinstance(w, dict) else w.model_dump() for w in team['workers']]
+        # 构建更新数据
+        update_data = {}
+        if req.name:
+            update_data['name'] = req.name
+        if req.description is not None:
+            update_data['description'] = req.description
+        if req.is_active is not None:
+            update_data['is_active'] = req.is_active
+
+        # 如果有配置更新，构建新的 config
+        if req.global_supervisor_agent or req.teams or req.execution_mode or req.enable_context_sharing is not None:
+            # 获取现有配置
+            hierarchy = repo.get_by_id(req.id)
+            if not hierarchy:
+                return jsonify({'success': False, 'error': '层级团队不存在'}), 404
+
+            config = hierarchy.config.copy() if hierarchy.config else {}
+
+            if req.execution_mode:
+                config['execution_mode'] = req.execution_mode
+            if req.enable_context_sharing is not None:
+                config['enable_context_sharing'] = req.enable_context_sharing
+            if req.global_supervisor_agent:
+                config['global_supervisor_agent'] = req.global_supervisor_agent.model_dump()
+            if req.teams:
+                config['teams'] = [team.model_dump() for team in req.teams]
+
+            # 验证 agent_id 唯一性
+            is_unique, duplicate_id = check_agent_ids_unique_in_hierarchy(config)
+            if not is_unique:
+                return jsonify({
+                    'success': False,
+                    'error': f"agent_id '{duplicate_id}' is duplicated within this hierarchy",
+                    'code': 400001
+                }), 400
+
+            update_data['config'] = config
 
         hierarchy = repo.update(req.id, update_data)
 
@@ -358,7 +349,6 @@ def update_hierarchy():
 @swag_from({
     'tags': ['Hierarchies'],
     'summary': '删除层级团队',
-    'description': '删除层级团队及其所有团队和 Worker 配置',
     'parameters': [{
         'name': 'body',
         'in': 'body',

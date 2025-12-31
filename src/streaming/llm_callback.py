@@ -8,61 +8,91 @@ LLM Callback Handler - 追踪 LLM 调用来源
 from typing import Any, Callable, Dict, Optional
 from dataclasses import dataclass
 
+from ..core.api_models import AgentType, EventCategory, EventAction
+
 
 @dataclass
 class CallerContext:
-    """调用者上下文信息"""
-    is_global_supervisor: bool = False
+    """
+    调用者上下文信息
+
+    存储 Agent 来源信息，用于生成事件格式
+    """
+    agent_id: str
+    agent_type: AgentType
+    agent_name: str
     team_name: Optional[str] = None
-    is_team_supervisor: bool = False
-    worker_name: Optional[str] = None
 
     @classmethod
-    def global_supervisor(cls) -> 'CallerContext':
+    def global_supervisor(cls, agent_id: str, agent_name: str = "Global Supervisor") -> 'CallerContext':
         """创建 Global Supervisor 上下文"""
-        return cls(is_global_supervisor=True)
+        return cls(
+            agent_id=agent_id,
+            agent_type=AgentType.GLOBAL_SUPERVISOR,
+            agent_name=agent_name,
+            team_name=None
+        )
 
     @classmethod
-    def team_supervisor(cls, team_name: str) -> 'CallerContext':
+    def team_supervisor(cls, agent_id: str, agent_name: str, team_name: str) -> 'CallerContext':
         """创建 Team Supervisor 上下文"""
-        return cls(team_name=team_name, is_team_supervisor=True)
+        return cls(
+            agent_id=agent_id,
+            agent_type=AgentType.TEAM_SUPERVISOR,
+            agent_name=agent_name,
+            team_name=team_name
+        )
 
     @classmethod
-    def worker(cls, worker_name: str, team_name: str) -> 'CallerContext':
+    def worker(cls, agent_id: str, agent_name: str, team_name: str) -> 'CallerContext':
         """创建 Worker 上下文"""
-        return cls(team_name=team_name, worker_name=worker_name)
+        return cls(
+            agent_id=agent_id,
+            agent_type=AgentType.WORKER,
+            agent_name=agent_name,
+            team_name=team_name
+        )
 
-    def to_event_fields(self) -> Dict[str, Any]:
-        """转换为事件字段（以 _ 开头的内部字段）"""
+    def to_source_dict(self) -> Dict[str, Any]:
+        """转换为 source 字典（新版事件格式）"""
         return {
-            '_is_global_supervisor': self.is_global_supervisor,
-            '_team_name': self.team_name,
-            '_is_team_supervisor': self.is_team_supervisor,
-            '_worker_name': self.worker_name
+            'agent_id': self.agent_id,
+            'agent_type': self.agent_type.value if isinstance(self.agent_type, AgentType) else self.agent_type,
+            'agent_name': self.agent_name,
+            'team_name': self.team_name
+        }
+
+    def to_db_fields(self) -> Dict[str, Any]:
+        """转换为数据库字段（用于持久化）"""
+        return {
+            'agent_id': self.agent_id,
+            'agent_type': self.agent_type.value if isinstance(self.agent_type, AgentType) else self.agent_type,
+            'agent_name': self.agent_name,
+            'team_name': self.team_name
         }
 
     def get_source_label(self) -> str:
-        """获取来源标签"""
-        if self.is_global_supervisor:
-            return "[Global Supervisor]"
-        elif self.is_team_supervisor:
-            return f"[Team: {self.team_name} | Supervisor]"
-        elif self.worker_name:
-            return f"[Team: {self.team_name} | Worker: {self.worker_name}]"
-        return "[Unknown]"
+        """获取来源标签（用于日志）"""
+        if self.agent_type == AgentType.GLOBAL_SUPERVISOR:
+            return f"[Global Supervisor: {self.agent_name}]"
+        elif self.agent_type == AgentType.TEAM_SUPERVISOR:
+            return f"[Team: {self.team_name} | Supervisor: {self.agent_name}]"
+        elif self.agent_type == AgentType.WORKER:
+            return f"[Team: {self.team_name} | Worker: {self.agent_name}]"
+        return f"[Agent: {self.agent_id}]"
 
 
 # 全局事件回调（由 RunManager 设置）
-_global_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+_global_event_callback: Optional[Callable[[Dict[str, Any]], None]] = None
 
 
-def set_global_event_callback(callback: Optional[Callable[[str, Dict[str, Any]], None]]):
+def set_global_event_callback(callback: Optional[Callable[[Dict[str, Any]], None]]):
     """设置全局事件回调"""
     global _global_event_callback
     _global_event_callback = callback
 
 
-def get_global_event_callback() -> Optional[Callable[[str, Dict[str, Any]], None]]:
+def get_global_event_callback() -> Optional[Callable[[Dict[str, Any]], None]]:
     """获取全局事件回调"""
     return _global_event_callback
 
@@ -77,7 +107,7 @@ class LLMCallbackHandler:
     def __init__(
         self,
         caller_context: CallerContext,
-        event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         verbose: bool = False
     ):
         """
@@ -119,9 +149,12 @@ class LLMCallbackHandler:
             if self.verbose:
                 print(reasoning_text, end="")
             if callback:
-                self._emit_event(callback, 'llm_reasoning', {
-                    'content': reasoning_text
-                })
+                self._emit_event(
+                    callback,
+                    EventCategory.LLM,
+                    EventAction.REASONING,
+                    {'content': reasoning_text}
+                )
 
         # 处理输出数据（实时发射）
         if data:
@@ -130,9 +163,12 @@ class LLMCallbackHandler:
                 print(data, end="" if not complete else "\n")
             # 实时发射 LLM 输出片段
             if callback and len(data.strip()) > 0:
-                self._emit_event(callback, 'llm_stream', {
-                    'content': data
-                })
+                self._emit_event(
+                    callback,
+                    EventCategory.LLM,
+                    EventAction.STREAM,
+                    {'content': data}
+                )
 
         # 处理工具调用
         if current_tool_use and current_tool_use.get("name"):
@@ -143,35 +179,53 @@ class LLMCallbackHandler:
                 if self.verbose:
                     print(f"\nTool #{self.tool_count}: {tool_name}")
                 if callback:
-                    self._emit_event(callback, 'llm_tool_call', {
-                        'tool_name': tool_name,
-                        'tool_count': self.tool_count
-                    })
+                    self._emit_event(
+                        callback,
+                        EventCategory.LLM,
+                        EventAction.TOOL_CALL,
+                        {
+                            'tool_name': tool_name,
+                            'tool_count': self.tool_count
+                        }
+                    )
 
-        # 完成时发送累积的文本
+        # 完成时清空缓冲区
         if complete:
-            if self._buffer and callback:
-                full_text = ''.join(self._buffer)
-                self._emit_event(callback, 'llm_output', {
-                    'content': full_text[:2000]  # 限制长度
-                })
             self._buffer = []
             if self.verbose and data:
                 print("\n")
 
-    def _emit_event(self, callback: Callable, event_type: str, data: Dict[str, Any]):
-        """发射带有调用者信息的事件"""
-        # 添加来源标识字段
-        event_data = {
-            **data,
-            **self.caller_context.to_event_fields()
+    def _emit_event(
+        self,
+        callback: Callable,
+        category: EventCategory,
+        action: EventAction,
+        data: Dict[str, Any]
+    ):
+        """
+        发射事件
+
+        事件结构:
+        {
+            "source": { agent_id, agent_type, agent_name, team_name },
+            "event": { category, action },
+            "data": { ... }
         }
-        callback(event_type, event_data)
+        """
+        event_data = {
+            'source': self.caller_context.to_source_dict(),
+            'event': {
+                'category': category.value,
+                'action': action.value
+            },
+            'data': data
+        }
+        callback(event_data)
 
 
 def create_callback_handler(
     caller_context: CallerContext,
-    event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     verbose: bool = False
 ) -> LLMCallbackHandler:
     """

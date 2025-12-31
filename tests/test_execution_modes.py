@@ -24,7 +24,7 @@ def test_sequential_execution():
     
     agent, tracker, team_names = (
         HierarchyBuilder(parallel_execution=False)  # 显式设置为顺序执行
-        .set_global_prompt("""你是项目协调者。
+        .set_global_system_prompt("""你是项目协调者。
 你需要协调两个团队完成任务：
 1. 数据分析团队 - 负责数据分析
 2. 报告撰写团队 - 负责撰写报告
@@ -33,7 +33,7 @@ def test_sequential_execution():
 """)
         .add_team(
             name="数据分析团队",
-            supervisor_prompt="你是数据分析团队主管，协调团队成员完成数据分析任务。",
+            system_prompt="你是数据分析团队主管，协调团队成员完成数据分析任务。",
             workers=[
                 {
                     'name': '数据分析师',
@@ -45,7 +45,7 @@ def test_sequential_execution():
         )
         .add_team(
             name="报告撰写团队",
-            supervisor_prompt="你是报告撰写团队主管，协调团队成员撰写报告。",
+            system_prompt="你是报告撰写团队主管，协调团队成员撰写报告。",
             workers=[
                 {
                     'name': '报告撰写员',
@@ -70,7 +70,7 @@ def test_parallel_execution():
     
     agent, tracker, team_names = (
         HierarchyBuilder(parallel_execution=True)  # 设置为并行执行
-        .set_global_prompt("""你是项目协调者。
+        .set_global_system_prompt("""你是项目协调者。
 你需要协调两个团队完成任务：
 1. 前端开发团队 - 负责前端开发
 2. 后端开发团队 - 负责后端开发
@@ -79,7 +79,7 @@ def test_parallel_execution():
 """)
         .add_team(
             name="前端开发团队",
-            supervisor_prompt="你是前端开发团队主管，协调团队成员完成前端开发。",
+            system_prompt="你是前端开发团队主管，协调团队成员完成前端开发。",
             workers=[
                 {
                     'name': '前端工程师',
@@ -90,7 +90,7 @@ def test_parallel_execution():
         )
         .add_team(
             name="后端开发团队",
-            supervisor_prompt="你是后端开发团队主管，协调团队成员完成后端开发。",
+            system_prompt="你是后端开发团队主管，协调团队成员完成后端开发。",
             workers=[
                 {
                     'name': '后端工程师',
@@ -115,11 +115,11 @@ def test_builder_method():
     
     agent, tracker, team_names = (
         HierarchyBuilder()
-        .set_global_prompt("你是协调者")
+        .set_global_system_prompt("你是协调者")
         .set_parallel_execution(True)  # 使用方法设置
         .add_team(
             name="团队A",
-            supervisor_prompt="团队A主管",
+            system_prompt="团队A主管",
             workers=[
                 {
                     'name': '成员A',

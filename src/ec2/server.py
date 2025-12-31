@@ -111,7 +111,7 @@ from ..core.config import setup_config
 from ..db.database import init_db
 
 # 导入路由蓝图
-from ..api.routes import models_bp, hierarchies_bp, runs_bp, health_bp
+from ..api.routes import hierarchies_bp, runs_bp, health_bp
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -302,7 +302,6 @@ Authorization: Bearer <token>
 
     # 注册蓝图
     app.register_blueprint(health_bp)  # /health, /
-    app.register_blueprint(models_bp, url_prefix='/api/executor/v1/models')
     app.register_blueprint(hierarchies_bp, url_prefix='/api/executor/v1/hierarchies')
     app.register_blueprint(runs_bp, url_prefix='/api/executor/v1/runs')
 
@@ -323,19 +322,37 @@ def register_legacy_routes(app: Flask):
     # 注意: execute_hierarchy 延迟导入到 execute() 函数中以避免 strands 依赖检查
 
     def _validate_request(body):
-        required_fields = ['global_prompt', 'teams', 'task']
-        for field in required_fields:
-            if field not in body:
-                return f"Missing required field: {field}"
+        # Support both old format (global_prompt) and new format (global_supervisor_agent)
+        has_global_prompt = 'global_prompt' in body
+        has_global_agent = 'global_supervisor_agent' in body and isinstance(body.get('global_supervisor_agent'), dict)
+        if not has_global_prompt and not has_global_agent:
+            return "Missing required field: 'global_prompt' or 'global_supervisor_agent.system_prompt'"
+        if has_global_agent and 'system_prompt' not in body['global_supervisor_agent']:
+            return "Missing required field: 'global_supervisor_agent.system_prompt'"
+
+        if 'teams' not in body:
+            return "Missing required field: 'teams'"
+        if 'task' not in body:
+            return "Missing required field: 'task'"
         if not isinstance(body['teams'], list):
             return "Field 'teams' must be a list"
         if len(body['teams']) == 0:
             return "At least one team is required"
+
         for i, team in enumerate(body['teams']):
-            team_required = ['name', 'supervisor_prompt', 'workers']
-            for field in team_required:
-                if field not in team:
-                    return f"Team {i}: Missing required field '{field}'"
+            if 'name' not in team:
+                return f"Team {i}: Missing required field 'name'"
+            if 'workers' not in team:
+                return f"Team {i}: Missing required field 'workers'"
+
+            # Support both old format (supervisor_prompt) and new format (team_supervisor_agent)
+            has_supervisor_prompt = 'supervisor_prompt' in team
+            has_team_agent = 'team_supervisor_agent' in team and isinstance(team.get('team_supervisor_agent'), dict)
+            if not has_supervisor_prompt and not has_team_agent:
+                return f"Team {i}: Missing required field 'supervisor_prompt' or 'team_supervisor_agent.system_prompt'"
+            if has_team_agent and 'system_prompt' not in team['team_supervisor_agent']:
+                return f"Team {i}: Missing required field 'team_supervisor_agent.system_prompt'"
+
             if not isinstance(team['workers'], list):
                 return f"Team {i}: Field 'workers' must be a list"
             if len(team['workers']) == 0:

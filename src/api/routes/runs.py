@@ -198,7 +198,75 @@ def get_run():
 @swag_from({
     'tags': ['Runs'],
     'summary': '流式获取运行事件',
-    'description': '通过 SSE 流式获取运行执行过程中的事件',
+    'description': '''通过 SSE (Server-Sent Events) 流式获取运行执行过程中的事件。
+
+## 事件格式
+
+每个事件遵循以下结构:
+```
+event: {category}.{action}
+data: {"run_id": "...", "timestamp": "...", "sequence": 123, "source": {...}, "event": {...}, "data": {...}}
+```
+
+## 事件类别 (category)
+
+| category | 说明 |
+|----------|------|
+| lifecycle | 生命周期事件 |
+| llm | LLM 相关事件 |
+| dispatch | 调度事件 |
+| system | 系统事件 |
+
+## 事件动作 (action)
+
+| category | action | 说明 |
+|----------|--------|------|
+| lifecycle | started | 运行开始 |
+| lifecycle | completed | 运行完成 |
+| lifecycle | failed | 运行失败 |
+| lifecycle | cancelled | 运行取消 |
+| llm | stream | LLM 输出流 |
+| llm | reasoning | LLM 推理过程 |
+| llm | tool_call | LLM 工具调用 |
+| llm | tool_result | 工具调用结果 |
+| dispatch | team | 调度团队 |
+| dispatch | worker | 调度 Worker |
+| system | topology | 拓扑结构 |
+| system | warning | 警告信息 |
+| system | error | 错误信息 |
+
+## 来源标识 (source)
+
+| 字段 | 说明 |
+|------|------|
+| agent_id | Agent 唯一标识 |
+| agent_type | Agent 类型: global_supervisor, team_supervisor, worker |
+| agent_name | Agent 名称 |
+| team_name | 所属团队名称 (可选) |
+
+## 示例事件
+
+```json
+{
+  "run_id": "abc-123",
+  "timestamp": "2025-01-01T12:00:00.123Z",
+  "sequence": 1,
+  "source": {
+    "agent_id": "gs-001",
+    "agent_type": "global_supervisor",
+    "agent_name": "Global Supervisor",
+    "team_name": null
+  },
+  "event": {
+    "category": "llm",
+    "action": "stream"
+  },
+  "data": {
+    "content": "开始分析任务..."
+  }
+}
+```
+''',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -213,12 +281,12 @@ def get_run():
     }],
     'responses': {
         200: {
-            'description': 'SSE 事件流',
+            'description': 'SSE 事件流 (text/event-stream)',
             'content': {
                 'text/event-stream': {
                     'schema': {
                         'type': 'string',
-                        'example': 'event: execution_started\\ndata: {"task": "..."}\\n\\n'
+                        'example': 'event: lifecycle.started\\ndata: {"run_id":"abc","timestamp":"2025-01-01T12:00:00.123Z","sequence":1,"source":null,"event":{"category":"lifecycle","action":"started"},"data":{"task":"请解释AI"}}\\n\\n'
                     }
                 }
             }
@@ -330,7 +398,21 @@ def cancel_run():
 @swag_from({
     'tags': ['Runs'],
     'summary': '获取运行事件列表',
-    'description': '获取运行的所有事件记录（非流式）',
+    'description': '''获取运行的所有事件记录（非流式）。
+
+返回的事件结构与 SSE 流式事件一致，包含完整的事件历史。
+
+## 事件结构
+
+每个事件包含以下字段:
+- `id`: 事件唯一标识
+- `run_id`: 所属运行 ID
+- `timestamp`: 事件时间戳 (ISO 8601)
+- `sequence`: 序列号 (用于排序)
+- `source`: 来源信息 (agent_id, agent_type, agent_name, team_name)
+- `event`: 事件类型 (category, action)
+- `data`: 事件数据
+''',
     'parameters': [{
         'name': 'body',
         'in': 'body',
@@ -339,12 +421,56 @@ def cancel_run():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string'}
+                'id': {'type': 'string', 'description': '运行 ID'}
             }
         }
     }],
     'responses': {
-        200: {'description': '事件列表'},
+        200: {
+            'description': '事件列表',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'success': {'type': 'boolean'},
+                    'data': {
+                        'type': 'object',
+                        'properties': {
+                            'run_id': {'type': 'string'},
+                            'status': {'type': 'string', 'enum': ['pending', 'running', 'completed', 'failed', 'cancelled']},
+                            'events': {
+                                'type': 'array',
+                                'items': {
+                                    'type': 'object',
+                                    'properties': {
+                                        'id': {'type': 'string'},
+                                        'run_id': {'type': 'string'},
+                                        'timestamp': {'type': 'string', 'format': 'date-time'},
+                                        'sequence': {'type': 'integer'},
+                                        'source': {
+                                            'type': 'object',
+                                            'properties': {
+                                                'agent_id': {'type': 'string'},
+                                                'agent_type': {'type': 'string', 'enum': ['global_supervisor', 'team_supervisor', 'worker']},
+                                                'agent_name': {'type': 'string'},
+                                                'team_name': {'type': 'string'}
+                                            }
+                                        },
+                                        'event': {
+                                            'type': 'object',
+                                            'properties': {
+                                                'category': {'type': 'string', 'enum': ['lifecycle', 'llm', 'dispatch', 'system']},
+                                                'action': {'type': 'string'}
+                                            }
+                                        },
+                                        'data': {'type': 'object'}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         404: {'description': '运行不存在'}
     }
 })

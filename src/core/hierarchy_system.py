@@ -314,6 +314,8 @@ class WorkerConfig:
     role: str
     system_prompt: str
     id: str
+    agent_id: str = ""  # agent_id 用于 stream 事件标识
+    user_message: Optional[str] = None  # 预定义的用户消息（优先级：预定义 > 动态生成）
     tools: List[Any] = field(default_factory=list)
     model: Optional[Any] = None
     temperature: float = 0.7
@@ -324,9 +326,11 @@ class WorkerConfig:
 class TeamConfig:
     """Team 配置"""
     name: str
-    supervisor_prompt: str
+    system_prompt: str  # Team Supervisor 的系统提示词
     workers: List[WorkerConfig]
     id: str
+    agent_id: str = ""  # Team Supervisor 的 agent_id
+    user_message: Optional[str] = None  # 预定义的用户消息（优先级：预定义 > 动态生成）
     model: Optional[Any] = None
     prevent_duplicate: bool = True
     share_context: bool = False  # 是否接收其他团队的上下文
@@ -338,6 +342,8 @@ class GlobalConfig:
     system_prompt: str
     teams: List[TeamConfig]
     id: str
+    agent_id: str = ""  # Global Supervisor 的 agent_id
+    user_message: Optional[str] = None  # 预定义的用户消息（优先级：task > 预定义）
     model: Optional[Any] = None
     enable_tracking: bool = True
     enable_context_sharing: bool = False  # 全局开关：是否启用跨团队上下文共享
@@ -438,9 +444,9 @@ class WorkerAgentFactory:
         print_worker_start(config.name, task, current_team)
         print_worker_thinking(config.name, current_team)
 
-        # 创建回调处理器（Worker 上下文）
+        # 创建回调处理器（Worker 上下文，使用 agent_id）
         callback_handler = create_callback_handler(
-            CallerContext.worker(config.name, current_team or "Unknown")
+            CallerContext.worker(config.agent_id or config.id, config.name, current_team or "Unknown")
         )
 
         # 创建并执行 Agent
@@ -784,14 +790,14 @@ FAILURE CONDITIONS - YOU WILL FAIL IF:
                     task, worker_names, tracker, config, enable_context_sharing
                 )
 
-                # 7. 创建回调处理器（Team Supervisor 上下文）
+                # 7. 创建回调处理器（Team Supervisor 上下文，使用 agent_id）
                 team_callback_handler = create_callback_handler(
-                    CallerContext.team_supervisor(config.name)
+                    CallerContext.team_supervisor(config.agent_id or config.id, config.name)
                 )
 
                 # 8. 执行任务
                 supervisor = Agent(
-                    system_prompt=config.supervisor_prompt,
+                    system_prompt=config.system_prompt,
                     tools=worker_tools,
                     model=config.model,
                     callback_handler=team_callback_handler
@@ -967,9 +973,9 @@ Subtask: Explain practical applications in quantum computing.
 - If you respond without calling any team, you have FAILED your mission
 """
         
-        # 创建回调处理器（Global Supervisor 上下文）
+        # 创建回调处理器（Global Supervisor 上下文，使用 agent_id）
         global_callback_handler = create_callback_handler(
-            CallerContext.global_supervisor()
+            CallerContext.global_supervisor(config.agent_id or config.id)
         )
 
         # 创建 Global Supervisor Agent
@@ -1061,31 +1067,59 @@ class HierarchyBuilder:
     def __init__(self, enable_tracking: bool = True, enable_context_sharing: bool = False, parallel_execution: bool = False):
         """
         初始化构建器
-        
+
         Args:
             enable_tracking: 是否启用调用追踪
             enable_context_sharing: 是否启用跨团队上下文共享
             parallel_execution: 团队执行模式（False=顺序执行，True=并行执行）
         """
         self.teams: List[TeamConfig] = []
-        self.global_prompt: str = ""
+        self.global_system_prompt: str = ""
+        self.global_user_message: Optional[str] = None
         self.global_model: Optional[Any] = None
+        self.global_agent_id: str = ""  # Global Supervisor 的 agent_id
         self.enable_tracking = enable_tracking
         self.enable_context_sharing = enable_context_sharing
         self.parallel_execution = parallel_execution
         self.tracker = CallTracker() if enable_tracking else None
-    
-    def set_global_prompt(self, prompt: str) -> 'HierarchyBuilder':
+
+    def set_global_system_prompt(self, prompt: str) -> 'HierarchyBuilder':
         """
         设置全局协调者的系统提示词
-        
+
         Args:
             prompt: 系统提示词
-            
+
         Returns:
             self（支持链式调用）
         """
-        self.global_prompt = prompt
+        self.global_system_prompt = prompt
+        return self
+
+    def set_global_user_message(self, user_message: str) -> 'HierarchyBuilder':
+        """
+        设置全局协调者的预定义用户消息
+
+        Args:
+            user_message: 用户消息
+
+        Returns:
+            self（支持链式调用）
+        """
+        self.global_user_message = user_message
+        return self
+
+    def set_global_agent_id(self, agent_id: str) -> 'HierarchyBuilder':
+        """
+        设置全局协调者的 agent_id
+
+        Args:
+            agent_id: agent_id 标识符
+
+        Returns:
+            self（支持链式调用）
+        """
+        self.global_agent_id = agent_id
         return self
     
     def set_global_model(self, model: Any) -> 'HierarchyBuilder':
@@ -1117,23 +1151,27 @@ class HierarchyBuilder:
     def add_team(
         self,
         name: str,
-        supervisor_prompt: str,
+        system_prompt: str,
         workers: List[Dict[str, Any]],
+        agent_id: str = "",
+        user_message: Optional[str] = None,
         model: Optional[Any] = None,
         prevent_duplicate: bool = True,
         share_context: bool = False
     ) -> 'HierarchyBuilder':
         """
         添加一个团队
-        
+
         Args:
             name: 团队名称
-            supervisor_prompt: 团队主管的系统提示词
+            system_prompt: 团队主管的系统提示词
             workers: Worker 配置列表，每个 Worker 需包含 name, role, system_prompt
+            agent_id: Team Supervisor 的 agent_id
+            user_message: 预定义的用户消息
             model: 团队使用的模型（可选）
             prevent_duplicate: 是否防止重复调用
             share_context: 是否接收其他团队的上下文
-            
+
         Returns:
             self（支持链式调用）
         """
@@ -1144,6 +1182,8 @@ class HierarchyBuilder:
                 role=w['role'],
                 system_prompt=w['system_prompt'],
                 id=w.get('id', str(uuid.uuid4())),  # 使用提供的 id 或生成新的
+                agent_id=w.get('agent_id', ''),  # 使用提供的 agent_id
+                user_message=w.get('user_message'),  # 预定义的用户消息
                 tools=w.get('tools', []),
                 model=w.get('model'),
                 temperature=w.get('temperature', 0.7),
@@ -1151,45 +1191,49 @@ class HierarchyBuilder:
             )
             for w in workers
         ]
-        
+
         # 创建团队配置
         team_config = TeamConfig(
             name=name,
-            supervisor_prompt=supervisor_prompt,
+            system_prompt=system_prompt,
             workers=worker_configs,
             id=str(uuid.uuid4()),  # 生成团队 UUID
+            agent_id=agent_id,
+            user_message=user_message,
             model=model,
             prevent_duplicate=prevent_duplicate,
             share_context=share_context
         )
-        
+
         self.teams.append(team_config)
         return self
     
     def build(self) -> tuple[Agent, Optional[CallTracker], List[str]]:
         """
         构建并返回 Global Supervisor、Tracker 和团队名称列表
-        
+
         完成配置后调用此方法创建实际的 Agent 实例。
-        
+
         Returns:
             (Global Supervisor Agent, CallTracker 或 None, 团队名称列表)
         """
         # 创建全局配置
         config = GlobalConfig(
-            system_prompt=self.global_prompt,
+            system_prompt=self.global_system_prompt,
             teams=self.teams,
             id=str(uuid.uuid4()),  # 生成全局配置 UUID
+            agent_id=self.global_agent_id,
+            user_message=self.global_user_message,
             model=self.global_model,
             enable_tracking=self.enable_tracking,
             enable_context_sharing=self.enable_context_sharing,
             parallel_execution=self.parallel_execution
         )
-        
+
         # 设置执行追踪器
         if self.tracker:
             WorkerAgentFactory.set_execution_tracker(self.tracker.execution_tracker)
-        
+
         # 创建 Global Supervisor
         agent, team_names = GlobalSupervisorFactory.create_global_supervisor(config, self.tracker)
         return agent, self.tracker, team_names
@@ -1199,32 +1243,50 @@ class HierarchyBuilder:
 # 便捷函数
 # ============================================================================
 
-def create_hierarchy(
-    config_dict: Dict[str, Any],
-    enable_tracking: bool = True
-) -> tuple[Agent, Optional[CallTracker]]:
+def create_hierarchy_from_config(config: dict, enable_tracking: bool = True) -> tuple[Agent, Optional[CallTracker], List[str]]:
     """
-    从字典配置创建层级团队
-    
+    从新格式的配置创建层级团队
+
     Args:
-        config_dict: 配置字典
+        config: 配置字典（新格式，包含 global_supervisor_agent 和 teams）
         enable_tracking: 是否启用调用追踪
-        
+
     Returns:
-        (Global Supervisor Agent, CallTracker 或 None)
+        (Global Supervisor Agent, CallTracker 或 None, 团队名称列表)
     """
-    builder = HierarchyBuilder(enable_tracking=enable_tracking)
-    builder.set_global_prompt(config_dict['global_prompt'])
-    
-    for team in config_dict['teams']:
+    # 提取配置
+    execution_mode = config.get('execution_mode', 'sequential')
+    enable_context_sharing = config.get('enable_context_sharing', False)
+    global_agent = config.get('global_supervisor_agent', {})
+    teams = config.get('teams', [])
+
+    builder = HierarchyBuilder(
+        enable_tracking=enable_tracking,
+        enable_context_sharing=enable_context_sharing,
+        parallel_execution=(execution_mode == 'parallel')
+    )
+
+    # 设置 Global Supervisor
+    builder.set_global_system_prompt(global_agent.get('system_prompt', ''))
+    if global_agent.get('agent_id'):
+        builder.set_global_agent_id(global_agent['agent_id'])
+    if global_agent.get('user_message'):
+        builder.set_global_user_message(global_agent['user_message'])
+
+    # 添加团队
+    for team in teams:
+        team_agent = team.get('team_supervisor_agent', {})
         builder.add_team(
             name=team['name'],
-            supervisor_prompt=team['supervisor_prompt'],
-            workers=team['workers'],
+            system_prompt=team_agent.get('system_prompt', ''),
+            workers=team.get('workers', []),
+            agent_id=team_agent.get('agent_id', ''),
+            user_message=team_agent.get('user_message'),
             model=team.get('model'),
-            prevent_duplicate=team.get('prevent_duplicate', True)
+            prevent_duplicate=team.get('prevent_duplicate', True),
+            share_context=team.get('share_context', False)
         )
-    
+
     return builder.build()
 
 

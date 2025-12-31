@@ -62,13 +62,17 @@ def test_execute_endpoint():
     print("测试 3: 执行端点（基本验证）")
     print("=" * 80)
     
-    # 简单的测试请求
+    # 简单的测试请求（使用新的 API 格式）
     test_request = {
-        "global_prompt": "你是全局协调者",
+        "global_supervisor_agent": {
+            "system_prompt": "你是全局协调者"
+        },
         "teams": [
             {
                 "name": "测试团队",
-                "supervisor_prompt": "你是团队负责人",
+                "team_supervisor_agent": {
+                    "system_prompt": "你是团队负责人"
+                },
                 "workers": [
                     {
                         "name": "测试工作者",

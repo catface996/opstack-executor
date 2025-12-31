@@ -30,63 +30,16 @@ class RunStatus(str, Enum):
     CANCELLED = 'cancelled'
 
 
-class AIModel(Base):
-    """AI 模型配置"""
-    __tablename__ = 'ai_model'
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    name = Column(String(100), nullable=False, unique=True, comment='模型显示名称')
-    model_id = Column(String(200), nullable=False, comment='AWS Bedrock 模型 ID')
-    region = Column(String(50), default='us-east-1', comment='AWS 区域')
-
-    # 模型参数
-    temperature = Column(Float, default=0.7, comment='温度参数')
-    max_tokens = Column(Integer, default=2048, comment='最大 token 数')
-    top_p = Column(Float, default=0.9, comment='Top-P 参数')
-
-    # 元数据
-    description = Column(Text, nullable=True, comment='模型描述')
-    is_active = Column(Boolean, default=True, comment='是否激活')
-
-    # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def to_dict(self) -> dict:
-        """转换为字典"""
-        return {
-            'id': self.id,
-            'name': self.name,
-            'model_id': self.model_id,
-            'region': self.region,
-            'temperature': self.temperature,
-            'max_tokens': self.max_tokens,
-            'top_p': self.top_p,
-            'description': self.description,
-            'is_active': self.is_active,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-
 class HierarchyTeam(Base):
-    """层级团队配置 - 主表"""
+    """层级团队配置 - 使用 JSON 存储整个层级结构"""
     __tablename__ = 'hierarchy_team'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(100), nullable=False, unique=True, comment='层级团队名称')
     description = Column(Text, nullable=True, comment='描述')
 
-    # 全局配置
-    global_prompt = Column(Text, nullable=False, comment='全局 Supervisor 提示词')
-    execution_mode = Column(String(20), default='sequential', comment='执行模式: sequential/parallel')
-    enable_context_sharing = Column(Boolean, default=False, comment='是否启用上下文共享')
-
-    # Global Supervisor LLM 配置
-    global_model_id = Column(String(36), ForeignKey('ai_model.id'), nullable=True)
-    global_temperature = Column(Float, default=0.7, comment='Global Supervisor 温度参数')
-    global_max_tokens = Column(Integer, default=2048, comment='Global Supervisor 最大 token 数')
-    global_top_p = Column(Float, default=0.9, comment='Global Supervisor Top-P 参数')
+    # 整个层级配置存储为 JSON
+    config = Column(JSON, nullable=False, comment='层级配置 JSON')
 
     # 元数据
     is_active = Column(Boolean, default=True)
@@ -96,169 +49,22 @@ class HierarchyTeam(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # 关系
-    global_model = relationship("AIModel", foreign_keys=[global_model_id])
-    teams = relationship("Team", back_populates="hierarchy", cascade="all, delete-orphan",
-                        order_by="Team.order_index")
-
-    def to_dict(self, include_teams: bool = True) -> dict:
+    def to_dict(self) -> dict:
         """转换为字典"""
-        result = {
+        return {
             'id': self.id,
             'name': self.name,
             'description': self.description,
-            'global_prompt': self.global_prompt,
-            'execution_mode': self.execution_mode,
-            'enable_context_sharing': self.enable_context_sharing,
-            'llm_config': {
-                'model_id': self.global_model_id,
-                'temperature': self.global_temperature,
-                'max_tokens': self.global_max_tokens,
-                'top_p': self.global_top_p,
-            },
+            'config': self.config,
             'is_active': self.is_active,
             'version': self.version,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
-        if include_teams:
-            result['teams'] = [team.to_dict() for team in self.teams]
-        return result
-
-    def to_execution_config(self) -> dict:
-        """转换为执行配置格式（兼容现有 execute_hierarchy）"""
-        return {
-            'global_prompt': self.global_prompt,
-            'execution_mode': self.execution_mode,
-            'enable_context_sharing': self.enable_context_sharing,
-            'teams': [team.to_execution_config() for team in self.teams]
-        }
-
-
-class Team(Base):
-    """团队配置"""
-    __tablename__ = 'team'
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    hierarchy_id = Column(String(36), ForeignKey('hierarchy_team.id'), nullable=False)
-
-    name = Column(String(100), nullable=False, comment='团队名称')
-    supervisor_prompt = Column(Text, nullable=False, comment='团队 Supervisor 提示词')
-
-    # 团队配置
-    prevent_duplicate = Column(Boolean, default=True, comment='防止重复调用')
-    share_context = Column(Boolean, default=False, comment='共享上下文')
-    order_index = Column(Integer, default=0, comment='团队顺序')
-
-    # Team Supervisor LLM 配置
-    model_id = Column(String(36), ForeignKey('ai_model.id'), nullable=True)
-    temperature = Column(Float, default=0.7, comment='Team Supervisor 温度参数')
-    max_tokens = Column(Integer, default=2048, comment='Team Supervisor 最大 token 数')
-    top_p = Column(Float, default=0.9, comment='Team Supervisor Top-P 参数')
-
-    # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # 关系
-    hierarchy = relationship("HierarchyTeam", back_populates="teams")
-    model = relationship("AIModel", foreign_keys=[model_id])
-    workers = relationship("Worker", back_populates="team", cascade="all, delete-orphan",
-                          order_by="Worker.order_index")
-
-    def to_dict(self, include_workers: bool = True) -> dict:
-        """转换为字典"""
-        result = {
-            'id': self.id,
-            'hierarchy_id': self.hierarchy_id,
-            'name': self.name,
-            'supervisor_prompt': self.supervisor_prompt,
-            'prevent_duplicate': self.prevent_duplicate,
-            'share_context': self.share_context,
-            'order_index': self.order_index,
-            'llm_config': {
-                'model_id': self.model_id,
-                'temperature': self.temperature,
-                'max_tokens': self.max_tokens,
-                'top_p': self.top_p,
-            },
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }
-        if include_workers:
-            result['workers'] = [worker.to_dict() for worker in self.workers]
-        return result
 
     def to_execution_config(self) -> dict:
         """转换为执行配置格式"""
-        return {
-            'name': self.name,
-            'supervisor_prompt': self.supervisor_prompt,
-            'prevent_duplicate': self.prevent_duplicate,
-            'share_context': self.share_context,
-            'workers': [worker.to_execution_config() for worker in self.workers]
-        }
-
-
-class Worker(Base):
-    """Worker Agent 配置"""
-    __tablename__ = 'worker'
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    team_id = Column(String(36), ForeignKey('team.id'), nullable=False)
-
-    name = Column(String(100), nullable=False, comment='Worker 名称')
-    role = Column(String(200), nullable=False, comment='角色描述')
-    system_prompt = Column(Text, nullable=False, comment='系统提示词')
-
-    # Worker 参数
-    tools = Column(JSON, default=list, comment='工具列表')
-    order_index = Column(Integer, default=0, comment='Worker 顺序')
-
-    # Worker LLM 配置
-    model_id = Column(String(36), ForeignKey('ai_model.id'), nullable=True)
-    temperature = Column(Float, default=0.7, comment='Worker 温度参数')
-    max_tokens = Column(Integer, default=2048, comment='Worker 最大 token 数')
-    top_p = Column(Float, default=0.9, comment='Worker Top-P 参数')
-
-    # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # 关系
-    team = relationship("Team", back_populates="workers")
-    model = relationship("AIModel", foreign_keys=[model_id])
-
-    def to_dict(self) -> dict:
-        """转换为字典"""
-        return {
-            'id': self.id,
-            'team_id': self.team_id,
-            'name': self.name,
-            'role': self.role,
-            'system_prompt': self.system_prompt,
-            'tools': self.tools or [],
-            'order_index': self.order_index,
-            'llm_config': {
-                'model_id': self.model_id,
-                'temperature': self.temperature,
-                'max_tokens': self.max_tokens,
-                'top_p': self.top_p,
-            },
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-    def to_execution_config(self) -> dict:
-        """转换为执行配置格式"""
-        return {
-            'name': self.name,
-            'role': self.role,
-            'system_prompt': self.system_prompt,
-            'tools': self.tools or [],
-            'temperature': self.temperature,
-            'max_tokens': self.max_tokens,
-        }
+        return self.config
 
 
 class ExecutionRun(Base):
@@ -311,23 +117,40 @@ class ExecutionRun(Base):
 
 
 class ExecutionEvent(Base):
-    """执行事件记录"""
+    """
+    执行事件记录
+
+    事件结构:
+    {
+        "run_id": "...",
+        "timestamp": "...",
+        "sequence": 123,
+        "source": { agent_id, agent_type, agent_name, team_name },
+        "event": { category, action },
+        "data": { ... }
+    }
+    """
     __tablename__ = 'execution_event'
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     run_id = Column(String(36), ForeignKey('execution_run.id'), nullable=False)
 
-    # 事件信息
-    event_type = Column(String(50), nullable=False, comment='事件类型')
+    # 时间和顺序
     timestamp = Column(DateTime, default=datetime.utcnow)
     sequence = Column(BigInteger, nullable=False, default=0, comment='序列号，用于同一秒内事件排序')
-    data = Column(JSON, nullable=True, comment='事件数据')
 
-    # 来源标识
-    is_global_supervisor = Column(Boolean, default=False, comment='是否为 Global Supervisor 输出')
-    team_name = Column(String(100), nullable=True, comment='团队名称')
-    is_team_supervisor = Column(Boolean, default=False, comment='是否为 Team Supervisor 输出')
-    worker_name = Column(String(100), nullable=True, comment='Worker 名称')
+    # 事件类型 (category + action)
+    event_category = Column(String(30), nullable=False, comment='事件类别: lifecycle, llm, dispatch, system')
+    event_action = Column(String(30), nullable=False, comment='事件动作: started, completed, stream, etc.')
+
+    # 来源标识 (source object)
+    agent_id = Column(String(100), nullable=True, comment='Agent ID')
+    agent_type = Column(String(30), nullable=True, comment='Agent 类型: global_supervisor, team_supervisor, worker')
+    agent_name = Column(String(100), nullable=True, comment='Agent 名称')
+    team_name = Column(String(100), nullable=True, comment='所属团队名称')
+
+    # 事件数据
+    data = Column(JSON, nullable=True, comment='事件数据')
 
     # 关系
     run = relationship("ExecutionRun", back_populates="events")
@@ -337,12 +160,17 @@ class ExecutionEvent(Base):
         return {
             'id': self.id,
             'run_id': self.run_id,
-            'event_type': self.event_type,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
             'sequence': self.sequence,
-            'data': self.data,
-            'is_global_supervisor': self.is_global_supervisor,
-            'team_name': self.team_name,
-            'is_team_supervisor': self.is_team_supervisor,
-            'worker_name': self.worker_name,
+            'source': {
+                'agent_id': self.agent_id,
+                'agent_type': self.agent_type,
+                'agent_name': self.agent_name,
+                'team_name': self.team_name
+            } if self.agent_type else None,
+            'event': {
+                'category': self.event_category,
+                'action': self.event_action
+            },
+            'data': self.data
         }

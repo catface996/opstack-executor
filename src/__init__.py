@@ -21,6 +21,7 @@ def get_core_exports():
     from .core import (
         ExecutionMode,
         EventType,
+        InternalEvent,
         WorkerConfigRequest,
         TeamConfigRequest,
         HierarchyConfigRequest,
@@ -41,6 +42,7 @@ def get_core_exports():
     return {
         'ExecutionMode': ExecutionMode,
         'EventType': EventType,
+        'InternalEvent': InternalEvent,
         'WorkerConfigRequest': WorkerConfigRequest,
         'TeamConfigRequest': TeamConfigRequest,
         'HierarchyConfigRequest': HierarchyConfigRequest,

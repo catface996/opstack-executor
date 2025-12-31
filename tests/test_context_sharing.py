@@ -27,7 +27,7 @@ def main():
     # 创建启用上下文共享的系统
     agent, tracker, team_names = (
         HierarchyBuilder(enable_context_sharing=True)  # 启用全局上下文共享
-        .set_global_prompt("""你是量子力学研究中心的首席科学家。
+        .set_global_system_prompt("""你是量子力学研究中心的首席科学家。
 你负责协调三个团队的工作：
 1. 理论物理学团队 - 负责理论研究
 2. 实验物理学团队 - 负责实验设计（会接收理论团队的成果）
@@ -37,7 +37,7 @@ def main():
 """)
         .add_team(
             name="理论物理学团队",
-            supervisor_prompt="""你是理论物理学团队的负责人。
+            system_prompt="""你是理论物理学团队的负责人。
 你管理量子理论专家。
 
 请用中文回答，提供理论分析。
@@ -57,7 +57,7 @@ def main():
         )
         .add_team(
             name="实验物理学团队",
-            supervisor_prompt="""你是实验物理学团队的负责人。
+            system_prompt="""你是实验物理学团队的负责人。
 你管理实验设计师。
 
 【重要】：你会收到理论团队的研究成果，请基于这些理论来设计实验。
@@ -79,7 +79,7 @@ def main():
         )
         .add_team(
             name="专家评审团队",
-            supervisor_prompt="""你是专家评审团队的负责人。
+            system_prompt="""你是专家评审团队的负责人。
 你管理同行评审专家。
 
 【重要】：你会收到理论团队和实验团队的研究成果，请基于这些成果进行评审。

@@ -28,7 +28,7 @@ def main():
     # 创建量子力学研究团队
     agent, tracker, team_names = (
         HierarchyBuilder()
-        .set_global_prompt("""你是量子力学研究中心的首席科学家 (Chief Scientist)。
+        .set_global_system_prompt("""你是量子力学研究中心的首席科学家 (Chief Scientist)。
 你负责协调整个研究中心的工作，管理三个核心团队：
 1. 理论物理学团队 - 负责理论研究和数学建模
 2. 实验物理学团队 - 负责实验设计和数据采集
@@ -43,12 +43,12 @@ def main():
 【重要】任务分配规则 - 必须严格遵守：
 
 任务类型识别：
-1. 如果任务包含"理论"、"分析"、"推导"、"Bell态"、"数学"、"量子理论" 
+1. 如果任务包含"理论"、"分析"、"推导"、"Bell态"、"数学"、"量子理论"
    → 调用相应的理论团队
-   
+
 2. 如果任务包含"实验"、"设计"、"方案"、"测量"、"数据采集"、"验证"
    → 调用相应的实验团队
-   
+
 3. 如果任务包含"评估"、"评审"、"价值"、"创新性"、"影响"
    → 调用相应的评审团队
 
@@ -62,7 +62,7 @@ def main():
 """)
         .add_team(
             name="理论物理学团队",
-            supervisor_prompt="""你是理论物理学团队的负责人 (Theoretical Physics Team Lead)。
+            system_prompt="""你是理论物理学团队的负责人 (Theoretical Physics Team Lead)。
 你管理量子理论专家和数学物理学家。
 
 你的职责:
@@ -135,7 +135,7 @@ def main():
         )
         .add_team(
             name="实验物理学团队",
-            supervisor_prompt="""你是实验物理学团队的负责人 (Experimental Physics Team Lead)。
+            system_prompt="""你是实验物理学团队的负责人 (Experimental Physics Team Lead)。
 你管理实验设计师和数据分析师。
 
 你的职责:
@@ -206,7 +206,7 @@ def main():
         )
         .add_team(
             name="专家评审团队",
-            supervisor_prompt="""你是专家评审团队的负责人 (Expert Review Team Lead)。
+            system_prompt="""你是专家评审团队的负责人 (Expert Review Team Lead)。
 你管理方法论专家和同行评审专家。
 
 你的职责:

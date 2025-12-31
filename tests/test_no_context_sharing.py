@@ -27,7 +27,7 @@ def main():
     # 使用默认配置（不共享上下文）
     agent, tracker, team_names = (
         HierarchyBuilder()  # 默认：enable_context_sharing=False
-        .set_global_prompt("""你是研究中心的首席科学家。
+        .set_global_system_prompt("""你是研究中心的首席科学家。
 你负责协调两个团队：
 1. 理论团队 - 负责理论分析
 2. 实验团队 - 负责实验设计
@@ -36,7 +36,7 @@ def main():
 """)
         .add_team(
             name="理论团队",
-            supervisor_prompt="""你是理论团队的负责人。
+            system_prompt="""你是理论团队的负责人。
 你管理理论专家。
 
 请用中文回答，提供简洁的理论分析（不超过100字）。
@@ -56,7 +56,7 @@ def main():
         )
         .add_team(
             name="实验团队",
-            supervisor_prompt="""你是实验团队的负责人。
+            system_prompt="""你是实验团队的负责人。
 你管理实验专家。
 
 【注意】：你不会收到理论团队的成果，需要独立设计实验。

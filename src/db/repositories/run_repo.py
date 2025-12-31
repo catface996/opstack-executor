@@ -107,26 +107,40 @@ class RunRepository:
     def add_event(
         self,
         run_id: str,
-        event_type: str,
+        event_category: str,
+        event_action: str,
         data: dict = None,
-        is_global_supervisor: bool = False,
-        team_name: str = None,
-        is_team_supervisor: bool = False,
-        worker_name: str = None
+        agent_id: str = None,
+        agent_type: str = None,
+        agent_name: str = None,
+        team_name: str = None
     ) -> ExecutionEvent:
-        """添加执行事件"""
+        """
+        添加执行事件
+
+        Args:
+            run_id: 运行 ID
+            event_category: 事件类别 (lifecycle, llm, dispatch, system)
+            event_action: 事件动作 (started, completed, stream, etc.)
+            data: 事件数据
+            agent_id: Agent ID
+            agent_type: Agent 类型 (global_supervisor, team_supervisor, worker)
+            agent_name: Agent 名称
+            team_name: 所属团队名称
+        """
         # 使用微秒时间戳作为序列号，保证顺序
         sequence = int(time.time() * 1000000)
 
         event = ExecutionEvent(
             run_id=run_id,
-            event_type=event_type,
+            event_category=event_category,
+            event_action=event_action,
             data=data,
             sequence=sequence,
-            is_global_supervisor=is_global_supervisor,
+            agent_id=agent_id,
+            agent_type=agent_type,
+            agent_name=agent_name,
             team_name=team_name,
-            is_team_supervisor=is_team_supervisor,
-            worker_name=worker_name,
             timestamp=datetime.utcnow()
         )
         self.session.add(event)
