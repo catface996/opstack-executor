@@ -14,8 +14,9 @@ from ..db.models import ExecutionRun, RunStatus
 from ..db.database import get_db_session
 from ..db.repositories import RunRepository, HierarchyRepository
 from ..streaming.sse_manager import SSERegistry, SSEManager
-from ..streaming.output_interceptor import intercept_output, EventEmitter
+from ..streaming.output_interceptor import intercept_output
 from ..streaming.llm_callback import set_global_event_callback
+from ..core.api_models import EventCategory, EventAction
 
 # 延迟导入 - 避免在模块加载时触发 strands 依赖
 # from ..core.hierarchy_executor import execute_hierarchy
@@ -28,9 +29,7 @@ def _get_execute_hierarchy():
 
 
 class RunManager:
-    """
-    运行管理器 - 管理任务执行生命周期
-    """
+    """运行管理器 - 管理任务执行生命周期"""
 
     _instance: Optional['RunManager'] = None
     _lock = threading.Lock()
@@ -176,32 +175,39 @@ class RunManager:
                 self._active_runs[run_id]['started_at'] = datetime.utcnow()
 
             # 发送开始事件
-            sse_manager.emit('execution_started', {'task': task})
+            sse_manager.emit({
+                'source': None,  # 系统事件没有 source
+                'event': {
+                    'category': EventCategory.LIFECYCLE.value,
+                    'action': EventAction.STARTED.value
+                },
+                'data': {'task': task}
+            })
 
             # 定义事件回调
-            def event_callback(event_type: str, data: dict):
+            def event_callback(event_data: dict):
                 # 检查取消标志
                 if cancel_flag.is_set():
                     raise InterruptedError("Run was cancelled")
 
-                # 提取来源标签信息（以 _ 开头的内部字段）
-                is_global_supervisor = data.pop('_is_global_supervisor', False)
-                team_name = data.pop('_team_name', None)
-                is_team_supervisor = data.pop('_is_team_supervisor', False)
-                worker_name = data.pop('_worker_name', None) or data.get('name')
+                # 提取事件字段
+                source = event_data.get('source') or {}
+                event = event_data.get('event') or {}
+                data = event_data.get('data') or {}
 
                 # 发送 SSE 事件
-                sse_manager.emit(event_type, data)
+                sse_manager.emit(event_data)
 
                 # 保存事件到数据库
                 run_repo.add_event(
                     run_id,
-                    event_type,
-                    data,
-                    is_global_supervisor=is_global_supervisor,
-                    team_name=team_name,
-                    is_team_supervisor=is_team_supervisor,
-                    worker_name=worker_name
+                    event_category=event.get('category', 'unknown'),
+                    event_action=event.get('action', 'unknown'),
+                    data=data,
+                    agent_id=source.get('agent_id'),
+                    agent_type=source.get('agent_type'),
+                    agent_name=source.get('agent_name'),
+                    team_name=source.get('team_name')
                 )
 
             # 设置全局事件回调（供 LLM callback handler 使用）
@@ -225,9 +231,16 @@ class RunManager:
                     result=response.result,
                     statistics=response.statistics
                 )
-                sse_manager.emit('execution_completed', {
-                    'result': response.result[:1000] if response.result else None,
-                    'statistics': response.statistics
+                sse_manager.emit({
+                    'source': None,
+                    'event': {
+                        'category': EventCategory.LIFECYCLE.value,
+                        'action': EventAction.COMPLETED.value
+                    },
+                    'data': {
+                        'result': response.result[:1000] if response.result else None,
+                        'statistics': response.statistics
+                    }
                 })
             else:
                 run_repo.update_result(
@@ -235,12 +248,26 @@ class RunManager:
                     RunStatus.FAILED.value,
                     error=response.error
                 )
-                sse_manager.emit('execution_failed', {'error': response.error})
+                sse_manager.emit({
+                    'source': None,
+                    'event': {
+                        'category': EventCategory.LIFECYCLE.value,
+                        'action': EventAction.FAILED.value
+                    },
+                    'data': {'error': response.error}
+                })
 
         except InterruptedError:
             # 运行被取消
             run_repo.update_status(run_id, RunStatus.CANCELLED.value)
-            sse_manager.emit('execution_cancelled', {})
+            sse_manager.emit({
+                'source': None,
+                'event': {
+                    'category': EventCategory.LIFECYCLE.value,
+                    'action': EventAction.CANCELLED.value
+                },
+                'data': {}
+            })
 
         except Exception as e:
             # 运行失败
@@ -252,9 +279,16 @@ class RunManager:
                 RunStatus.FAILED.value,
                 error=f"{error_msg}\n{error_details}"
             )
-            sse_manager.emit('execution_failed', {
-                'error': error_msg,
-                'details': error_details
+            sse_manager.emit({
+                'source': None,
+                'event': {
+                    'category': EventCategory.LIFECYCLE.value,
+                    'action': EventAction.FAILED.value
+                },
+                'data': {
+                    'error': error_msg,
+                    'details': error_details
+                }
             })
 
         finally:

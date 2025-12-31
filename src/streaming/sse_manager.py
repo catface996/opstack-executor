@@ -13,6 +13,16 @@ from flask import Response
 class SSEManager:
     """
     SSE 管理器 - 管理服务器发送事件
+
+    事件格式:
+    {
+        "run_id": "...",
+        "timestamp": "...",
+        "sequence": 123,
+        "source": { agent_id, agent_type, agent_name, team_name },
+        "event": { category, action },
+        "data": { ... }
+    }
     """
 
     def __init__(self, run_id: str):
@@ -20,34 +30,48 @@ class SSEManager:
         self.event_queue: Queue = Queue()
         self.is_active = True
         self._lock = threading.Lock()
+        self._sequence = 0
 
-    def emit(self, event_type: str, data: dict):
+    def emit(self, event_data: Dict):
         """
         发射事件到队列
 
         Args:
-            event_type: 事件类型
-            data: 事件数据
+            event_data: 事件数据，包含 source, event, data
         """
         if not self.is_active:
             return
 
-        event = {
-            'event': event_type,
-            'data': {
-                **data,
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
-                'run_id': self.run_id
-            }
+        # 生成毫秒精度的 ISO 8601 时间戳
+        now = datetime.utcnow()
+        timestamp = now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{now.microsecond // 1000:03d}Z'
+
+        # 自增序列号
+        with self._lock:
+            self._sequence += 1
+            sequence = self._sequence
+
+        # 构建完整事件
+        full_event = {
+            'run_id': self.run_id,
+            'timestamp': timestamp,
+            'sequence': sequence,
+            'source': event_data.get('source'),
+            'event': event_data.get('event'),
+            'data': event_data.get('data', {})
         }
-        self.event_queue.put(event)
+
+        self.event_queue.put(full_event)
 
     def close(self):
         """关闭 SSE 连接"""
         with self._lock:
             self.is_active = False
             # 发送结束事件
-            self.event_queue.put({'event': 'close', 'data': {}})
+            self.event_queue.put({
+                'event': {'category': 'system', 'action': 'close'},
+                'data': {'message': 'Stream closed'}
+            })
 
     def generate_events(self, timeout: float = 30.0) -> Generator[str, None, None]:
         """
@@ -66,14 +90,20 @@ class SSEManager:
             try:
                 event = self.event_queue.get(timeout=1.0)
 
-                if event['event'] == 'close':
-                    # 发送关闭事件
+                # 检查是否是关闭事件
+                event_meta = event.get('event', {})
+                if event_meta.get('category') == 'system' and event_meta.get('action') == 'close':
                     yield f"event: close\ndata: {json.dumps({'message': 'Stream closed'}, ensure_ascii=False)}\n\n"
                     break
 
                 # 格式化 SSE 事件
-                yield f"event: {event['event']}\n"
-                yield f"data: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                # 使用 category.action 作为 event type
+                category = event_meta.get('category', 'unknown')
+                action = event_meta.get('action', 'unknown')
+                event_type = f"{category}.{action}"
+
+                yield f"event: {event_type}\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             except Empty:
                 # 发送心跳保持连接
@@ -97,9 +127,7 @@ class SSEManager:
 
 
 class SSERegistry:
-    """
-    SSE 管理器注册表 - 单例模式
-    """
+    """SSE 管理器注册表 - 单例模式"""
 
     _instance: Optional['SSERegistry'] = None
     _managers: Dict[str, SSEManager] = {}
@@ -122,7 +150,6 @@ class SSERegistry:
         """注册新的 SSE 管理器"""
         with self._lock:
             if run_id in self._managers:
-                # 关闭旧的管理器
                 self._managers[run_id].close()
 
             manager = SSEManager(run_id)

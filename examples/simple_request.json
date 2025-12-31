@@ -1,9 +1,13 @@
 {
-  "global_prompt": "你是研究中心的首席科学家，负责协调研究团队完成科研任务。",
+  "global_supervisor_agent": {
+    "system_prompt": "你是研究中心的首席科学家，负责协调研究团队完成科研任务。"
+  },
   "teams": [
     {
       "name": "理论研究团队",
-      "supervisor_prompt": "你是理论研究团队的负责人，负责协调团队成员进行理论分析。",
+      "team_supervisor_agent": {
+        "system_prompt": "你是理论研究团队的负责人，负责协调团队成员进行理论分析。"
+      },
       "workers": [
         {
           "name": "理论物理学家",

@@ -17,7 +17,7 @@ from .hierarchy_system import (
 from .api_models import (
     HierarchyConfigRequest,
     TopologyInfo,
-    StreamEvent,
+    InternalEvent,
     EventType,
     ExecutionResponse,
     ExecutionMode
@@ -28,44 +28,44 @@ from strands_tools import calculator, http_request
 class EventCapture:
     """
     事件捕获器 - 捕获执行过程中的事件
-    
+
     通过重定向标准输出来捕获打印的事件信息，并转换为结构化的事件对象。
     """
-    
+
     def __init__(self):
-        self.events: List[StreamEvent] = []
+        self.events: List[InternalEvent] = []
         self.original_stdout = None
         self.captured_output = StringIO()
-        
+
     def start_capture(self):
         """开始捕获输出"""
         self.original_stdout = sys.stdout
         sys.stdout = self.captured_output
-        
+
     def stop_capture(self):
         """停止捕获输出"""
         if self.original_stdout:
             sys.stdout = self.original_stdout
-            
-    def add_event(self, event_type: EventType, data: Dict[str, Any], 
+
+    def add_event(self, event_type: EventType, data: Dict[str, Any],
                   topology_metadata: Optional[Dict[str, str]] = None):
         """
         添加事件
-        
+
         Args:
             event_type: 事件类型
             data: 事件数据
             topology_metadata: 拓扑元数据（team_id, supervisor_id, worker_id）
         """
-        event = StreamEvent(
+        event = InternalEvent(
             event_type=event_type,
             timestamp=datetime.now().isoformat(),
             data=data,
             topology_metadata=topology_metadata
         )
         self.events.append(event)
-        
-    def get_events(self) -> List[StreamEvent]:
+
+    def get_events(self) -> List[InternalEvent]:
         """获取所有捕获的事件"""
         return self.events
 
@@ -130,8 +130,8 @@ class HierarchyExecutor:
         )
         
         # 设置全局提示词
-        self.builder.set_global_prompt(config.global_prompt)
-        
+        self.builder.set_global_system_prompt(config.global_prompt)
+
         # 添加所有团队
         for team_config in config.teams:
             # 转换 Worker 配置
@@ -147,11 +147,11 @@ class HierarchyExecutor:
                     'max_tokens': worker.max_tokens
                 }
                 workers.append(worker_dict)
-            
+
             # 添加团队
             self.builder.add_team(
                 name=team_config.name,
-                supervisor_prompt=team_config.supervisor_prompt,
+                system_prompt=team_config.supervisor_prompt,
                 workers=workers,
                 prevent_duplicate=team_config.prevent_duplicate,
                 share_context=team_config.share_context
@@ -199,40 +199,40 @@ class HierarchyExecutor:
             teams=teams_info
         )
     
-    def _create_execution_events(self, tracker: CallTracker) -> List[StreamEvent]:
+    def _create_execution_events(self, tracker: CallTracker) -> List[InternalEvent]:
         """
         从调用追踪器创建执行事件
-        
+
         Args:
             tracker: 调用追踪器
-            
+
         Returns:
             事件列表
         """
         events = []
-        
+
         # 添加拓扑创建事件
-        events.append(StreamEvent(
+        events.append(InternalEvent(
             event_type=EventType.TOPOLOGY_CREATED,
             timestamp=datetime.now().isoformat(),
             data={'topology': self.topology_info.to_dict()},
             topology_metadata=None
         ))
-        
+
         # 从调用历史创建事件
         for call in tracker.call_history:
             team_id = None
             supervisor_id = None
-            
+
             # 查找团队 ID
             for team_info in self.topology_info.teams:
                 if team_info['team_name'] == call['team_name']:
                     team_id = team_info['team_id']
                     supervisor_id = team_info['supervisor_id']
                     break
-            
+
             # 添加团队开始事件
-            events.append(StreamEvent(
+            events.append(InternalEvent(
                 event_type=EventType.TEAM_STARTED,
                 timestamp=call['start_time'],
                 data={
@@ -244,10 +244,10 @@ class HierarchyExecutor:
                     'supervisor_id': supervisor_id
                 }
             ))
-            
+
             # 如果已完成，添加完成事件
             if call['status'] == 'completed':
-                events.append(StreamEvent(
+                events.append(InternalEvent(
                     event_type=EventType.TEAM_COMPLETED,
                     timestamp=call.get('end_time', datetime.now().isoformat()),
                     data={
@@ -259,14 +259,14 @@ class HierarchyExecutor:
                         'supervisor_id': supervisor_id
                     }
                 ))
-        
+
         # 添加 Worker 执行事件
         for worker_name, result in tracker.execution_tracker.worker_results.items():
             # 查找 Worker 的团队和 ID
             worker_id = None
             team_id = None
             supervisor_id = None
-            
+
             for team_info in self.topology_info.teams:
                 for worker_info in team_info['workers']:
                     if worker_info['worker_name'] == worker_name:
@@ -276,8 +276,8 @@ class HierarchyExecutor:
                         break
                 if worker_id:
                     break
-            
-            events.append(StreamEvent(
+
+            events.append(InternalEvent(
                 event_type=EventType.WORKER_COMPLETED,
                 timestamp=datetime.now().isoformat(),
                 data={
@@ -290,7 +290,7 @@ class HierarchyExecutor:
                     'worker_id': worker_id
                 }
             ))
-        
+
         return events
     
     def execute(self, config: HierarchyConfigRequest) -> ExecutionResponse:

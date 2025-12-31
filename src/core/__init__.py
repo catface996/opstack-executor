@@ -13,6 +13,7 @@ Core - 层级多智能体系统核心模块
 from .api_models import (
     ExecutionMode,
     EventType,
+    InternalEvent,
     WorkerConfigRequest,
     TeamConfigRequest,
     HierarchyConfigRequest,
@@ -70,6 +71,7 @@ __all__ = [
     # api_models
     'ExecutionMode',
     'EventType',
+    'InternalEvent',
     'WorkerConfigRequest',
     'TeamConfigRequest',
     'HierarchyConfigRequest',
