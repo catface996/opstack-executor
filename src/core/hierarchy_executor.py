@@ -129,8 +129,10 @@ class HierarchyExecutor:
             parallel_execution=parallel_execution
         )
         
-        # 设置全局提示词
+        # 设置全局提示词和 agent_id
         self.builder.set_global_system_prompt(config.global_prompt)
+        if config.global_agent_id:
+            self.builder.set_global_agent_id(config.global_agent_id)
 
         # 添加所有团队
         for team_config in config.teams:
@@ -142,6 +144,7 @@ class HierarchyExecutor:
                     'role': worker.role,
                     'system_prompt': worker.system_prompt,
                     'id': worker.id or str(uuid.uuid4()),
+                    'agent_id': worker.agent_id or '',  # 传递外部 agent_id
                     'tools': self._resolve_tools(worker.tools),
                     'temperature': worker.temperature,
                     'max_tokens': worker.max_tokens
@@ -153,6 +156,7 @@ class HierarchyExecutor:
                 name=team_config.name,
                 system_prompt=team_config.supervisor_prompt,
                 workers=workers,
+                agent_id=team_config.agent_id or '',  # Team Supervisor 的 agent_id
                 prevent_duplicate=team_config.prevent_duplicate,
                 share_context=team_config.share_context
             )
