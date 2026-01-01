@@ -30,6 +30,41 @@ class RunStatus(str, Enum):
     CANCELLED = 'cancelled'
 
 
+class AIModel(Base):
+    """AI 模型配置"""
+    __tablename__ = 'ai_model'
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(100), nullable=False, unique=True, comment='模型名称')
+    model_id = Column(String(200), nullable=False, comment='AWS Bedrock 模型 ID')
+    region = Column(String(50), default='us-east-1', comment='AWS 区域')
+    temperature = Column(Float, default=0.7, comment='温度参数')
+    max_tokens = Column(Integer, default=2048, comment='最大 Token 数')
+    top_p = Column(Float, default=0.9, comment='Top-P 参数')
+    description = Column(Text, nullable=True, comment='模型描述')
+    is_active = Column(Boolean, default=True, comment='是否激活')
+
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'model_id': self.model_id,
+            'region': self.region,
+            'temperature': self.temperature,
+            'max_tokens': self.max_tokens,
+            'top_p': self.top_p,
+            'description': self.description,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class HierarchyTeam(Base):
     """层级团队配置 - 使用 JSON 存储整个层级结构"""
     __tablename__ = 'hierarchy_team'
@@ -71,7 +106,7 @@ class ExecutionRun(Base):
     """执行运行记录"""
     __tablename__ = 'execution_run'
 
-    id = Column(String(36), primary_key=True, default=generate_uuid)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     hierarchy_id = Column(String(36), nullable=False, comment='关联的层级团队 ID')
 
     # 任务信息
@@ -124,8 +159,8 @@ class ExecutionEvent(Base):
     """
     __tablename__ = 'execution_event'
 
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    run_id = Column(String(36), nullable=False, comment='关联的运行 ID')
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    run_id = Column(BigInteger, nullable=False, comment='关联的运行 ID')
 
     # 时间和顺序
     timestamp = Column(DateTime, default=datetime.utcnow)

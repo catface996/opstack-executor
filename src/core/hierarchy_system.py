@@ -21,7 +21,7 @@ from typing import Dict, List, Any, Optional, Callable, Set
 from dataclasses import dataclass, field
 
 from strands import Agent, tool
-
+from strands.models import BedrockModel
 
 from strands_tools import calculator, http_request
 from ..streaming.llm_callback import (
@@ -41,6 +41,29 @@ from .output_formatter import (
 # ============================================================================
 # 辅助函数
 # ============================================================================
+
+def create_model_from_id(model_id: Optional[str], temperature: float = 0.7, max_tokens: int = 2048) -> Optional[Any]:
+    """
+    根据 model_id 创建模型实例
+
+    Args:
+        model_id: 模型 ID（如 anthropic.claude-3-sonnet-20240229-v1:0）
+        temperature: 温度参数
+        max_tokens: 最大 token 数
+
+    Returns:
+        模型实例，如果 model_id 为 None 则返回 None
+    """
+    if not model_id:
+        return None
+
+    # 创建 BedrockModel
+    return BedrockModel(
+        model_id=model_id,
+        temperature=temperature,
+        max_tokens=max_tokens
+    )
+
 
 def generate_deterministic_id(*parts: str) -> str:
     """
@@ -344,6 +367,7 @@ class WorkerConfig:
     model: Optional[Any] = None
     temperature: float = 0.7
     max_tokens: int = 2048
+    model_id: Optional[str] = None  # LLM 模型 ID，如 gemini-2.0-flash
 
 
 @dataclass
@@ -360,6 +384,7 @@ class TeamConfig:
     share_context: bool = False  # 是否接收其他团队的上下文
     temperature: float = 0.7
     max_tokens: int = 2048
+    model_id: Optional[str] = None  # Team Supervisor LLM 模型 ID
 
 
 @dataclass
@@ -376,6 +401,7 @@ class GlobalConfig:
     parallel_execution: bool = False  # 团队执行模式：False=顺序执行，True=并行执行
     temperature: float = 0.7
     max_tokens: int = 2048
+    model_id: Optional[str] = None  # Global Supervisor LLM 模型 ID
 
 
 # ============================================================================
@@ -385,15 +411,22 @@ class GlobalConfig:
 class WorkerAgentFactory:
     """
     Worker Agent 工厂 - 动态创建 Worker Agent
-    
+
     负责创建 Worker Agent 实例，并管理 Worker 的调用追踪和防重复机制。
     """
-    
+
     # 类级别的调用追踪器（记录任务哈希 -> 结果）
     _worker_call_tracker = {}
     # 类级别的执行追踪器引用
     _execution_tracker: Optional['ExecutionTracker'] = None
-    
+    # 类级别的 run_id（用于跨线程回调查找）
+    _current_run_id: Optional[int] = None
+
+    @staticmethod
+    def set_current_run_id(run_id: Optional[int]):
+        """设置当前 run_id（用于跨线程回调查找）"""
+        WorkerAgentFactory._current_run_id = run_id
+
     @staticmethod
     def set_execution_tracker(tracker: 'ExecutionTracker'):
         """
@@ -472,31 +505,53 @@ class WorkerAgentFactory:
         print_worker_start(config.name, task, current_team)
         print_worker_thinking(config.name, current_team)
 
-        # 创建回调处理器（Worker 上下文，使用 agent_id）
+        # 创建回调处理器（Worker 上下文，使用 agent_id，传入 run_id 支持跨线程）
         callback_handler = create_callback_handler(
-            CallerContext.worker(config.agent_id or config.id, config.name, current_team or "Unknown")
+            CallerContext.worker(config.agent_id or config.id, config.name, current_team or "Unknown"),
+            run_id=WorkerAgentFactory._current_run_id
         )
 
+        # 确定使用的模型：优先使用 model_id 创建模型，其次使用 config.model
+        model = config.model
+        if config.model_id:
+            model = create_model_from_id(config.model_id, config.temperature, config.max_tokens)
+
         # 创建并执行 Agent
+        # 注意：Agent 串行化已在 SSEManager 的事件发射层实现，无需在此加锁
         agent = Agent(
             system_prompt=config.system_prompt,
             tools=config.tools,
-            model=config.model,
+            model=model,
             callback_handler=callback_handler,
         )
         response = agent(task)
 
         # 打印完成信息
         print_worker_complete(config.name, current_team)
+
+        # 发送 agent.completed 事件（用于 SSEManager 的串行化切换）
+        from ..streaming.llm_callback import get_event_callback
+        from .api_models import EventCategory, EventAction
+        event_callback = get_event_callback(WorkerAgentFactory._current_run_id) if WorkerAgentFactory._current_run_id else None
+        if event_callback:
+            event_callback({
+                'source': callback_handler.caller_context.to_source_dict(),
+                'event': {
+                    'category': EventCategory.AGENT.value,
+                    'action': EventAction.COMPLETED.value
+                },
+                'data': {'message': f'Worker {config.name} completed'}
+            })
+
         # 将 AgentResult 转为字符串
         response_text = str(response) if response else ""
         result = OutputFormatter.format_result_message(config.name, response_text)
-        
+
         # 记录执行结果
         WorkerAgentFactory._worker_call_tracker[call_key] = result
         if WorkerAgentFactory._execution_tracker:
             WorkerAgentFactory._execution_tracker.mark_worker_executed(config.name, result)
-        
+
         return result
     
     @staticmethod
@@ -677,10 +732,10 @@ class TeamSupervisorFactory:
         worker_list = ", ".join(worker_names)
         num_workers = len(worker_names)
 
-        # 添加执行规则 - 使用严格的英文约束和循环模式
+        # 添加执行规则 - 严格单工具调用限制
         enhanced_task_parts.append(f"""
 ================================================================================
-CRITICAL INSTRUCTIONS FOR TEAM SUPERVISOR - NO NEGOTIATION
+CRITICAL INSTRUCTIONS FOR TEAM SUPERVISOR - STRICT SEQUENTIAL EXECUTION
 ================================================================================
 
 You are the TEAM SUPERVISOR of [{team_name}].
@@ -691,58 +746,43 @@ Your ONLY job is to delegate tasks to your team members (workers).
 1. You must NEVER answer questions directly. NO EXCEPTIONS.
 2. You must ALWAYS call worker tools to handle the task.
 3. Each worker can ONLY be called ONCE.
-4. **CRITICAL: You MUST call EVERY worker ({num_workers} total). Calling only 1 worker is NOT acceptable.**
+4. You MUST call EVERY worker ({num_workers} total).
 
-[YOUR TEAM MEMBERS - YOU MUST CALL ALL {num_workers} OF THEM]
+[YOUR TEAM MEMBERS]
 {worker_list}
 
 ================================================================================
-⚠️⚠️⚠️ ONE WORKER AT A TIME - SEQUENTIAL EXECUTION ⚠️⚠️⚠️
+⛔⛔⛔ STRICT SINGLE TOOL CALL RULE ⛔⛔⛔
 ================================================================================
 
-**CRITICAL RULE: You can ONLY call ONE worker per response!**
+**ABSOLUTE REQUIREMENT: You can ONLY call ONE tool per response!**
 
-Why? Because:
-- Each worker's result provides NEW INFORMATION
-- You must ANALYZE this new information before deciding the next step
-- You must ADAPT subsequent worker tasks based on previous results
-- This enables INTELLIGENT COORDINATION, not blind execution
+After calling a tool, you MUST:
+1. STOP generating any more content
+2. WAIT for the tool result to come back
+3. Only AFTER receiving the result, continue with next action
 
-❌ WRONG: Call Worker1 and Worker2 in the same response
-✅ RIGHT: Call Worker1 → Wait for result → Analyze → Then call Worker2
+❌ FORBIDDEN: Calling multiple tools in one response
+❌ FORBIDDEN: Continuing to write after a tool call
+❌ FORBIDDEN: Planning next steps before seeing tool result
 
-================================================================================
-MANDATORY OUTPUT FORMAT - REQUIRED BEFORE EVERY WORKER CALL
-================================================================================
-
-**BEFORE calling EACH worker, you MUST print these 2 lines:**
-
-[Team: {team_name} | Supervisor] THINKING: <analyze the situation, consider previous results if any, explain why calling this worker next>
-[Team: {team_name} | Supervisor] SELECT: <exact worker name>
-
-**AFTER ALL {num_workers} workers complete, print:**
-[Team: {team_name} | Supervisor] SUMMARY: <integrated summary of all contributions>
+✅ CORRECT: Call ONE tool → STOP → Wait for result → Then respond again
 
 ================================================================================
-ITERATIVE WORKFLOW - CALL ONE WORKER, WAIT, ANALYZE, REPEAT
+MANDATORY WORKFLOW - ONE TOOL CALL THEN STOP
 ================================================================================
 
-🔄 **ITERATION 1 (First Worker):**
-   1. Print: [Team: {team_name} | Supervisor] THINKING: Starting task. I need [Worker1]'s expertise because...
-   2. Print: [Team: {team_name} | Supervisor] SELECT: [Worker1 Name]
-   3. Call [Worker1] tool with specific subtask
-   4. ⏸️ STOP HERE - Wait for Worker1's result before continuing
+**Each response should follow this pattern:**
 
-🔄 **ITERATION 2 (Second Worker) - Only AFTER seeing Worker1's result:**
-   1. Print: [Team: {team_name} | Supervisor] THINKING: Worker1 provided [key insights]. Based on this, I now need [Worker2] to...
-   2. Print: [Team: {team_name} | Supervisor] SELECT: [Worker2 Name]
-   3. Call [Worker2] tool with subtask (may be refined based on Worker1's output)
-   4. ⏸️ STOP HERE - Wait for Worker2's result
+[Team: {team_name} | Supervisor] THINKING: <brief analysis>
+[Team: {team_name} | Supervisor] SELECT: <worker name>
+<call the worker tool>
+<STOP HERE - DO NOT WRITE ANYTHING ELSE>
 
-🔄 **Continue until all {num_workers} workers are called...**
-
-📝 **FINAL - After all workers complete:**
-   Print: [Team: {team_name} | Supervisor] SUMMARY: [Synthesize all results]
+**After receiving the tool result, in your NEXT response:**
+- Analyze the result
+- If more workers needed: repeat the pattern above
+- If all workers done: output SUMMARY
 
 ================================================================================
 EXECUTION STATUS
@@ -751,19 +791,12 @@ EXECUTION STATUS
 - Workers marked ✅ = Already completed (do NOT call again)
 
 ================================================================================
-FAILURE CONDITIONS - YOU WILL FAIL IF:
+FAILURE CONDITIONS
 ================================================================================
-- ❌ You call fewer than {num_workers} workers
-- ❌ You call the same worker twice
-- ❌ You answer directly without calling any worker
-- ❌ You skip any worker marked ⭕
-- ❌ You call a worker WITHOUT printing THINKING and SELECT first
-- ❌ You call MULTIPLE workers in ONE response (must be one at a time!)
-
-**SUCCESS requires:**
-1. Call ONE worker per response
-2. Print THINKING → Print SELECT → Call Worker → Wait for result → Repeat
-3. Eventually call ALL {num_workers} workers: {worker_list}
+- ❌ Calling multiple tools in one response
+- ❌ Writing content after a tool call (must STOP immediately)
+- ❌ Skipping any worker marked ⭕
+- ❌ Answering directly without calling workers
 """)
         
         return "\n".join(enhanced_task_parts)
@@ -819,30 +852,53 @@ FAILURE CONDITIONS - YOU WILL FAIL IF:
                     task, worker_names, tracker, config, enable_context_sharing
                 )
 
-                # 7. 创建回调处理器（Team Supervisor 上下文，使用 agent_id）
+                # 7. 创建回调处理器（Team Supervisor 上下文，使用 agent_id，传入 run_id 支持跨线程）
                 team_callback_handler = create_callback_handler(
-                    CallerContext.team_supervisor(config.agent_id or config.id, f"{config.name}主管", config.name)
+                    CallerContext.team_supervisor(config.agent_id or config.id, f"{config.name}主管", config.name),
+                    run_id=WorkerAgentFactory._current_run_id
                 )
 
-                # 8. 执行任务
+                # 确定使用的模型：优先使用 model_id 创建模型，其次使用 config.model
+                model = config.model
+                if config.model_id:
+                    model = create_model_from_id(config.model_id, config.temperature, config.max_tokens)
+
+                # 8. 创建 Agent
                 supervisor = Agent(
                     system_prompt=config.system_prompt,
                     tools=worker_tools,
-                    model=config.model,
+                    model=model,
                     callback_handler=team_callback_handler
                 )
+
+                # 执行任务
                 response = supervisor(enhanced_task)
 
                 # 9. 完成执行（记录结果）
                 print_team_complete(config.name, agent_id=team_agent_id)
+
+                # 发送 agent.completed 事件
+                from ..streaming.llm_callback import get_event_callback
+                from .api_models import EventCategory, EventAction
+                event_callback = get_event_callback(WorkerAgentFactory._current_run_id) if WorkerAgentFactory._current_run_id else None
+                if event_callback:
+                    event_callback({
+                        'source': team_callback_handler.caller_context.to_source_dict(),
+                        'event': {
+                            'category': EventCategory.AGENT.value,
+                            'action': EventAction.COMPLETED.value
+                        },
+                        'data': {'message': f'Team Supervisor {config.name} completed'}
+                    })
+
                 # 将 AgentResult 转为字符串
                 response_text = str(response) if response else ""
                 result = OutputFormatter.format_result_message(config.name, response_text)
                 tracker.end_call(call_id, result)
                 tracker.execution_tracker.mark_team_executed(config.name, result)
-                
+
                 return result
-                
+
             except Exception as e:
                 # 处理异常
                 error_msg = f"[{config.name}] 错误: {str(e)}"
@@ -902,13 +958,13 @@ class GlobalSupervisorFactory:
         # Build team list for prompt
         team_list_str = "\n".join([f"  - {team.name}" for team in config.teams])
 
-        # Enhanced system prompt with STRICT English constraints
+        # Enhanced system prompt with STRICT single tool call constraint
         execution_mode = "SEQUENTIAL" if not config.parallel_execution else "PARALLEL"
 
         enhanced_prompt = f"""{config.system_prompt}
 
 ================================================================================
-CRITICAL INSTRUCTIONS - NO NEGOTIATION - MUST FOLLOW EXACTLY
+CRITICAL INSTRUCTIONS - STRICT SEQUENTIAL EXECUTION
 ================================================================================
 
 You are a COORDINATOR/DISPATCHER. Your ONLY job is to delegate tasks to teams.
@@ -931,88 +987,69 @@ You are a COORDINATOR/DISPATCHER. Your ONLY job is to delegate tasks to teams.
 {team_list_str}
 
 ================================================================================
-MANDATORY ITERATIVE WORKFLOW - CRITICAL
+⛔⛔⛔ STRICT SINGLE TOOL CALL RULE ⛔⛔⛔
 ================================================================================
 
-You MUST follow this LOOP pattern until ALL teams have been called:
+**ABSOLUTE REQUIREMENT: You can ONLY call ONE tool per response!**
 
-┌─────────────────────────────────────────────────────────────┐
-│  ITERATION LOOP (repeat until all teams are ✅)             │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  STEP 1: THINK                                              │
-│    - Output: "[Global Supervisor] THINKING: ..."            │
-│    - Review current status: which teams are ⭕ vs ✅         │
-│    - Decide which ⭕ team to call next                       │
-│    - Explain WHY you are selecting this team                │
-│                                                             │
-│  STEP 2: SELECT (Structured Output)                         │
-│    - Output: "[Global Supervisor] SELECT: [Team Name]"      │
-│    - State the specific subtask for this team               │
-│                                                             │
-│  STEP 3: DISPATCH                                           │
-│    - Call the team tool with the subtask                    │
-│    - Wait for the team to complete                          │
-│                                                             │
-│  STEP 4: CHECK                                              │
-│    - After team completes, check if more ⭕ teams remain    │
-│    - If YES: Go back to STEP 1                              │
-│    - If NO (all teams are ✅): Proceed to SYNTHESIS          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+After calling a tool, you MUST:
+1. STOP generating any more content immediately
+2. WAIT for the tool result to come back
+3. Only AFTER receiving the result, continue with next action in a NEW response
 
-AFTER ALL TEAMS COMPLETE:
+❌ FORBIDDEN: Calling multiple tools in one response
+❌ FORBIDDEN: Continuing to write after a tool call
+❌ FORBIDDEN: Planning next steps before seeing tool result
 
-  STEP 5: SYNTHESIS
-    - Output: "[Global Supervisor] SYNTHESIS: All teams completed..."
-    - Summarize the contributions from each team
-    - Integrate all results into a coherent final answer
-    - Present the final result to the user
+✅ CORRECT: Call ONE tool → STOP → Wait for result → Then respond again
 
 ================================================================================
-OUTPUT FORMAT REQUIREMENTS
+MANDATORY WORKFLOW - ONE TOOL CALL THEN STOP
 ================================================================================
 
-ALWAYS prefix your outputs with "[Global Supervisor]" so it's clear who is speaking.
+**Each response should follow this pattern:**
 
-Example iteration:
-```
-[Global Supervisor] THINKING: I have 2 teams available. 理论研究组 (⭕) and 应用研究组 (⭕).
-For this quantum physics question, I should start with theoretical foundations.
+[Global Supervisor] THINKING: <brief analysis of current status>
+[Global Supervisor] SELECT: <team name>
+<call the team tool>
+<STOP HERE - DO NOT WRITE ANYTHING ELSE>
 
-[Global Supervisor] SELECT: 理论研究组
-Subtask: Explain the theoretical concepts of quantum entanglement.
+**After receiving the tool result, in your NEXT response:**
+- Review the result briefly
+- If more teams marked ⭕: repeat the pattern above
+- If all teams are ✅: output SYNTHESIS with final summary
 
-[Calls team tool...]
-
-[Global Supervisor] THINKING: 理论研究组 (✅) completed. 应用研究组 (⭕) remains.
-Now I need practical applications.
-
-[Global Supervisor] SELECT: 应用研究组
-Subtask: Explain practical applications in quantum computing.
-
-[Calls team tool...]
-
-[Global Supervisor] SYNTHESIS: All teams completed. Integrating results...
-```
+================================================================================
+FAILURE CONDITIONS
+================================================================================
+- ❌ Calling multiple tools in one response
+- ❌ Writing content after a tool call (must STOP immediately)
+- ❌ Skipping any team marked ⭕
+- ❌ Answering directly without calling teams
 
 [CRITICAL REMINDER]
 - You are a COORDINATOR, not an executor
-- You must call ALL teams, not skip any
-- If you respond without calling any team, you have FAILED your mission
+- You must call ALL teams eventually, one at a time
+- After each tool call, STOP and wait for the result
 """
         
-        # 创建回调处理器（Global Supervisor 上下文，使用 agent_id）
+        # 创建回调处理器（Global Supervisor 上下文，使用 agent_id，传入 run_id 支持跨线程）
         global_callback_handler = create_callback_handler(
-            CallerContext.global_supervisor(config.agent_id or config.id)
+            CallerContext.global_supervisor(config.agent_id or config.id),
+            run_id=WorkerAgentFactory._current_run_id
         )
+
+        # 确定使用的模型：优先使用 model_id 创建模型，其次使用 config.model
+        model = config.model
+        if config.model_id:
+            model = create_model_from_id(config.model_id, config.temperature, config.max_tokens)
 
         # 创建 Global Supervisor Agent
         # 注意：并行/顺序执行主要通过系统提示词来引导 Agent 的行为
         global_supervisor = Agent(
             system_prompt=enhanced_prompt,
             tools=team_tools,
-            model=config.model,
+            model=model,
             callback_handler=global_callback_handler
         )
 
@@ -1064,10 +1101,26 @@ EXECUTION REMINDER
 """
         
         # 4. 执行任务
+        # 注意：不在 Global Supervisor 层加锁，因为它调用的 Team tools 可能在不同线程执行
+        # 锁只加在 Team Supervisor 和 Worker 层
         response = agent(enhanced_task)
 
         # 5. 打印完成分析
         print_global_complete(agent_id=global_agent_id)
+
+        # 发送 agent.completed 事件（用于 SSEManager 的串行化切换）
+        from ..streaming.llm_callback import get_event_callback
+        from .api_models import EventCategory, EventAction
+        event_callback = get_event_callback(WorkerAgentFactory._current_run_id) if WorkerAgentFactory._current_run_id else None
+        if event_callback:
+            event_callback({
+                'source': CallerContext.global_supervisor(global_agent_id or 'global').to_source_dict(),
+                'event': {
+                    'category': EventCategory.AGENT.value,
+                    'action': EventAction.COMPLETED.value
+                },
+                'data': {'message': 'Global Supervisor completed'}
+            })
 
         # 将 AgentResult 转为字符串返回
         return str(response) if response else ""
@@ -1110,6 +1163,7 @@ class HierarchyBuilder:
         self.global_agent_id: str = ""  # Global Supervisor 的 agent_id
         self.global_temperature: float = 0.7  # Global Supervisor LLM 温度参数
         self.global_max_tokens: int = 2048  # Global Supervisor LLM 最大 token 数
+        self.global_model_id: Optional[str] = None  # Global Supervisor LLM 模型 ID
         self.enable_tracking = enable_tracking
         self.enable_context_sharing = enable_context_sharing
         self.parallel_execution = parallel_execution
@@ -1193,6 +1247,19 @@ class HierarchyBuilder:
         self.global_max_tokens = max_tokens
         return self
 
+    def set_global_model_id(self, model_id: str) -> 'HierarchyBuilder':
+        """
+        设置全局协调者的 LLM 模型 ID
+
+        Args:
+            model_id: 模型 ID，如 gemini-2.0-flash
+
+        Returns:
+            self（支持链式调用）
+        """
+        self.global_model_id = model_id
+        return self
+
     def set_parallel_execution(self, parallel: bool) -> 'HierarchyBuilder':
         """
         设置团队执行模式
@@ -1217,7 +1284,8 @@ class HierarchyBuilder:
         prevent_duplicate: bool = True,
         share_context: bool = False,
         temperature: float = 0.7,
-        max_tokens: int = 2048
+        max_tokens: int = 2048,
+        model_id: Optional[str] = None
     ) -> 'HierarchyBuilder':
         """
         添加一个团队
@@ -1233,6 +1301,7 @@ class HierarchyBuilder:
             share_context: 是否接收其他团队的上下文
             temperature: Team Supervisor LLM 温度参数
             max_tokens: Team Supervisor LLM 最大 token 数
+            model_id: Team Supervisor LLM 模型 ID
 
         Returns:
             self（支持链式调用）
@@ -1253,7 +1322,8 @@ class HierarchyBuilder:
                 tools=w.get('tools', []),
                 model=w.get('model'),
                 temperature=w.get('temperature', 0.7),
-                max_tokens=w.get('max_tokens', 2048)
+                max_tokens=w.get('max_tokens', 2048),
+                model_id=w.get('model_id')
             ))
 
         # 团队 ID：优先使用 agent_id，没有则生成确定性 ID
@@ -1271,7 +1341,8 @@ class HierarchyBuilder:
             prevent_duplicate=prevent_duplicate,
             share_context=share_context,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            model_id=model_id
         )
 
         self.teams.append(team_config)
@@ -1301,7 +1372,8 @@ class HierarchyBuilder:
             enable_context_sharing=self.enable_context_sharing,
             parallel_execution=self.parallel_execution,
             temperature=self.global_temperature,
-            max_tokens=self.global_max_tokens
+            max_tokens=self.global_max_tokens,
+            model_id=self.global_model_id
         )
 
         # 设置执行追踪器

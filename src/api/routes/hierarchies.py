@@ -345,8 +345,14 @@ Global Supervisor (全局协调者)
 })
 def create_hierarchy():
     """创建层级团队"""
+    import json
     try:
         data = request.get_json() or {}
+
+        # 打印接收到的完整请求参数
+        print(f"\n[hierarchies/create] 收到请求参数:", flush=True)
+        print(json.dumps(data, indent=2, ensure_ascii=False), flush=True)
+
         req = HierarchyCreateRequest(**data)
 
         repo = get_repo()
@@ -385,8 +391,26 @@ def create_hierarchy():
             'data': hierarchy.to_dict()
         })
     except ValidationError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        # 解析 Pydantic 验证错误，给出明确原因
+        errors = e.errors()
+        error_details = []
+        for err in errors:
+            field = '.'.join(str(loc) for loc in err['loc'])
+            msg = err['msg']
+            error_type = err['type']
+            error_details.append({
+                'field': field,
+                'message': msg,
+                'type': error_type
+            })
+        print(f"[hierarchies/create] 验证失败: {error_details}", flush=True)
+        return jsonify({
+            'success': False,
+            'error': '请求参数验证失败',
+            'details': error_details
+        }), 400
     except Exception as e:
+        print(f"[hierarchies/create] 异常: {str(e)}", flush=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

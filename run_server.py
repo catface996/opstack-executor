@@ -9,6 +9,10 @@ import sys
 # 确保项目根目录在 Python 路径中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 加载 .env 文件（必须在导入其他模块之前）
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.ec2.server import app
 
 if __name__ == "__main__":

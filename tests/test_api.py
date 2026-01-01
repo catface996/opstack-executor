@@ -13,7 +13,7 @@ if 'AWS_BEDROCK_API_KEY' not in os.environ:
     print("export AWS_BEDROCK_API_KEY='your-api-key'")
     sys.exit(1)
 
-from src.lambda.handler import lambda_handler
+from src.lambda_deploy.handler import lambda_handler
 
 
 class MockContext:
@@ -30,7 +30,7 @@ def test_health_check():
     print("测试 1: 健康检查")
     print("=" * 80)
     
-    from src.lambda.handler import health_check_handler
+    from src.lambda_deploy.handler import health_check_handler
     
     event = {'httpMethod': 'GET', 'path': '/health'}
     response = health_check_handler(event, MockContext())

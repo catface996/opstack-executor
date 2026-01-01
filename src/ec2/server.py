@@ -111,7 +111,7 @@ from ..core.config import setup_config
 from ..db.database import init_db
 
 # 导入路由蓝图
-from ..api.routes import hierarchies_bp, runs_bp, health_bp
+from ..api.routes import models_bp, hierarchies_bp, runs_bp, health_bp
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -302,6 +302,7 @@ Authorization: Bearer <token>
 
     # 注册蓝图
     app.register_blueprint(health_bp)  # /health, /
+    app.register_blueprint(models_bp, url_prefix='/api/executor/v1/models')
     app.register_blueprint(hierarchies_bp, url_prefix='/api/executor/v1/hierarchies')
     app.register_blueprint(runs_bp, url_prefix='/api/executor/v1/runs')
 

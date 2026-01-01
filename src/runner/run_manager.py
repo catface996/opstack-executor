@@ -11,11 +11,17 @@ from typing import Dict, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from ..db.models import ExecutionRun, RunStatus
-from ..db.database import get_db_session
+from ..db.database import get_db_session, create_new_session
 from ..db.repositories import RunRepository, HierarchyRepository
 from ..streaming.sse_manager import SSERegistry, SSEManager
 from ..streaming.output_interceptor import intercept_output
-from ..streaming.llm_callback import set_global_event_callback
+from ..streaming.llm_callback import (
+    register_event_callback,
+    register_cancellation_checker,
+    set_current_run_id,
+    clear_current_run_id
+)
+from ..streaming.event_store import get_event_store
 from ..core.api_models import EventCategory, EventAction
 
 # 延迟导入 - 避免在模块加载时触发 strands 依赖
@@ -50,8 +56,8 @@ class RunManager:
         self.executor = ThreadPoolExecutor(max_workers=10)
 
         # 活跃运行追踪
-        self._active_runs: Dict[str, dict] = {}
-        self._cancellation_flags: Dict[str, threading.Event] = {}
+        self._active_runs: Dict[int, dict] = {}
+        self._cancellation_flags: Dict[int, threading.Event] = {}
         self._run_lock = threading.Lock()
         self._initialized = True
 
@@ -100,6 +106,11 @@ class RunManager:
         # 注册 SSE 管理器
         sse_manager = self.sse_registry.register(run.id)
 
+        # 调试日志
+        print(f"[start] 创建 run_id: {run.id}", flush=True)
+        print(f"[start] SSE Registry ID: {id(self.sse_registry)}", flush=True)
+        print(f"[start] 已注册的 run_ids: {self.sse_registry.get_all_run_ids()}", flush=True)
+
         # 获取执行配置
         config_dict = hierarchy.to_execution_config()
         config_dict['task'] = task
@@ -116,7 +127,7 @@ class RunManager:
 
         return run
 
-    def cancel_run(self, run_id: str) -> bool:
+    def cancel_run(self, run_id: int) -> bool:
         """
         取消运行
 
@@ -138,7 +149,7 @@ class RunManager:
                 return True
         return False
 
-    def is_running(self, run_id: str) -> bool:
+    def is_running(self, run_id: int) -> bool:
         """检查运行是否进行中"""
         with self._run_lock:
             if run_id in self._active_runs:
@@ -155,7 +166,7 @@ class RunManager:
 
     def _execute_run(
         self,
-        run_id: str,
+        run_id: int,
         config_dict: dict,
         task: str,
         sse_manager: SSEManager,
@@ -163,12 +174,17 @@ class RunManager:
     ):
         """
         执行运行（在后台线程中）
+
+        使用独立的数据库 session，避免与其他线程共享事务状态。
         """
-        session = get_db_session()
+        print(f"[execute] 开始执行 run_id: {run_id}", flush=True)
+        # 创建独立的 session，避免线程间事务污染
+        session = create_new_session()
         run_repo = RunRepository(session)
 
         try:
             # 更新状态为 running
+            print(f"[execute] 更新状态为 running", flush=True)
             run_repo.update_status(run_id, RunStatus.RUNNING.value)
             with self._run_lock:
                 self._active_runs[run_id]['status'] = 'running'
@@ -190,28 +206,17 @@ class RunManager:
                 if cancel_flag.is_set():
                     raise InterruptedError("Run was cancelled")
 
-                # 提取事件字段
-                source = event_data.get('source') or {}
-                event = event_data.get('event') or {}
-                data = event_data.get('data') or {}
-
-                # 发送 SSE 事件
+                # 发送 SSE 事件（双写：内存队列 + Redis Stream）
+                # SSEManager.emit() 会自动写入 Redis Stream
                 sse_manager.emit(event_data)
 
-                # 保存事件到数据库
-                run_repo.add_event(
-                    run_id,
-                    event_category=event.get('category', 'unknown'),
-                    event_action=event.get('action', 'unknown'),
-                    data=data,
-                    agent_id=source.get('agent_id'),
-                    agent_type=source.get('agent_type'),
-                    agent_name=source.get('agent_name'),
-                    team_name=source.get('team_name')
-                )
+            # 注册回调到全局注册表（使用 run_id 作为 key，支持跨线程访问）
+            register_event_callback(run_id, event_callback)
+            register_cancellation_checker(run_id, lambda: cancel_flag.is_set())
+            set_current_run_id(run_id)  # 设置当前线程的 run_id 上下文
 
-            # 设置全局事件回调（供 LLM callback handler 使用）
-            set_global_event_callback(event_callback)
+            # 将 run_id 添加到配置中，以便传递给 hierarchy_system
+            config_dict['run_id'] = run_id
 
             try:
                 # 使用输出拦截器执行
@@ -220,8 +225,10 @@ class RunManager:
                     execute_hierarchy = _get_execute_hierarchy()
                     response = execute_hierarchy(config_dict)
             finally:
-                # 清除全局事件回调
-                set_global_event_callback(None)
+                # 清除回调注册
+                register_event_callback(run_id, None)
+                register_cancellation_checker(run_id, None)
+                clear_current_run_id()
 
             # 更新结果
             if response.success:
@@ -273,6 +280,8 @@ class RunManager:
             # 运行失败
             error_msg = str(e)
             error_details = traceback.format_exc()
+            print(f"[execute] ❌ 执行失败: {error_msg}", flush=True)
+            print(f"[execute] 详情: {error_details}", flush=True)
 
             run_repo.update_result(
                 run_id,
@@ -293,11 +302,28 @@ class RunManager:
 
         finally:
             # 清理
+            print(f"[execute] 清理 run_id: {run_id}", flush=True)
+
+            # 设置 Redis Stream 过期时间（24 小时后自动删除）
+            try:
+                event_store = get_event_store()
+                event_store.set_expire(run_id, ttl_seconds=86400)
+                print(f"[execute] 已设置事件流过期时间: 24小时", flush=True)
+            except Exception as e:
+                print(f"[execute] 设置事件流过期时间失败: {e}", flush=True)
+
+            # 关闭独立的数据库 session
+            try:
+                session.close()
+            except Exception as e:
+                print(f"[execute] 关闭 session 异常: {e}", flush=True)
+
             sse_manager.close()
             with self._run_lock:
                 self._active_runs.pop(run_id, None)
                 self._cancellation_flags.pop(run_id, None)
             self.sse_registry.remove(run_id)
+            print(f"[execute] 清理完成，剩余 run_ids: {self.sse_registry.get_all_run_ids()}", flush=True)
 
     def shutdown(self):
         """关闭运行管理器"""

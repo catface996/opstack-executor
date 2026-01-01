@@ -12,7 +12,8 @@ from .hierarchy_system import (
     HierarchyBuilder,
     GlobalSupervisorFactory,
     ExecutionTracker,
-    CallTracker
+    CallTracker,
+    WorkerAgentFactory
 )
 from .api_models import (
     HierarchyConfigRequest,
@@ -136,6 +137,8 @@ class HierarchyExecutor:
         # 设置 Global Supervisor LLM 参数
         self.builder.set_global_temperature(config.global_temperature)
         self.builder.set_global_max_tokens(config.global_max_tokens)
+        if config.global_model_id:
+            self.builder.set_global_model_id(config.global_model_id)
 
         # 添加所有团队
         for team_config in config.teams:
@@ -150,7 +153,8 @@ class HierarchyExecutor:
                     'agent_id': worker.agent_id or '',  # 传递外部 agent_id
                     'tools': self._resolve_tools(worker.tools),
                     'temperature': worker.temperature,
-                    'max_tokens': worker.max_tokens
+                    'max_tokens': worker.max_tokens,
+                    'model_id': worker.model_id
                 }
                 workers.append(worker_dict)
 
@@ -163,7 +167,8 @@ class HierarchyExecutor:
                 prevent_duplicate=team_config.prevent_duplicate,
                 share_context=team_config.share_context,
                 temperature=team_config.temperature,
-                max_tokens=team_config.max_tokens
+                max_tokens=team_config.max_tokens,
+                model_id=team_config.model_id
             )
         
         # 构建系统
@@ -313,6 +318,10 @@ class HierarchyExecutor:
             ExecutionResponse 包含拓扑信息、事件流和执行结果
         """
         try:
+            # 0. 设置当前 run_id（用于跨线程回调查找）
+            if config.run_id is not None:
+                WorkerAgentFactory.set_current_run_id(config.run_id)
+
             # 1. 构建拓扑
             agent, tracker, team_names = self._build_topology(config)
             
@@ -372,7 +381,7 @@ class HierarchyExecutor:
                 EventType.ERROR,
                 {'error': error_msg}
             )
-            
+
             return ExecutionResponse(
                 success=False,
                 topology=self.topology_info or TopologyInfo(
@@ -384,6 +393,10 @@ class HierarchyExecutor:
                 error=error_msg,
                 statistics=None
             )
+
+        finally:
+            # 清理 run_id
+            WorkerAgentFactory.set_current_run_id(None)
 
 
 # ============================================================================

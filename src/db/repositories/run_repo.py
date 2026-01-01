@@ -25,7 +25,7 @@ class RunRepository:
         self.session.refresh(run)
         return run
 
-    def get_by_id(self, run_id: str) -> Optional[ExecutionRun]:
+    def get_by_id(self, run_id: int) -> Optional[ExecutionRun]:
         """根据 ID 获取运行记录"""
         return self.session.query(ExecutionRun).filter(ExecutionRun.id == run_id).first()
 
@@ -57,7 +57,7 @@ class RunRepository:
 
         return runs, total
 
-    def update_status(self, run_id: str, status: str) -> bool:
+    def update_status(self, run_id: int, status: str) -> bool:
         """更新运行状态"""
         run = self.get_by_id(run_id)
         if not run:
@@ -75,7 +75,7 @@ class RunRepository:
 
     def update_result(
         self,
-        run_id: str,
+        run_id: int,
         status: str,
         result: str = None,
         error: str = None,
@@ -99,58 +99,11 @@ class RunRepository:
         self.session.commit()
         return True
 
-    def add_event(
-        self,
-        run_id: str,
-        event_category: str,
-        event_action: str,
-        data: dict = None,
-        agent_id: str = None,
-        agent_type: str = None,
-        agent_name: str = None,
-        team_name: str = None
-    ) -> ExecutionEvent:
-        """
-        添加执行事件
+    # NOTE: add_event() and get_events() methods removed in favor of Redis Stream (EventStore)
+    # See src/streaming/event_store.py for the new event storage implementation.
+    # The ExecutionEvent MySQL model is kept for backward compatibility but no longer used.
 
-        Args:
-            run_id: 运行 ID
-            event_category: 事件类别 (lifecycle, llm, dispatch, system)
-            event_action: 事件动作 (started, completed, stream, etc.)
-            data: 事件数据
-            agent_id: Agent ID
-            agent_type: Agent 类型 (global_supervisor, team_supervisor, worker)
-            agent_name: Agent 名称
-            team_name: 所属团队名称
-        """
-        # 使用微秒时间戳作为序列号，保证顺序
-        sequence = int(time.time() * 1000000)
-
-        event = ExecutionEvent(
-            run_id=run_id,
-            event_category=event_category,
-            event_action=event_action,
-            data=data,
-            sequence=sequence,
-            agent_id=agent_id,
-            agent_type=agent_type,
-            agent_name=agent_name,
-            team_name=team_name,
-            timestamp=datetime.utcnow()
-        )
-        self.session.add(event)
-        self.session.commit()
-        self.session.refresh(event)
-        return event
-
-    def get_events(self, run_id: str) -> List[ExecutionEvent]:
-        """获取运行的所有事件"""
-        return self.session.query(ExecutionEvent) \
-            .filter(ExecutionEvent.run_id == run_id) \
-            .order_by(ExecutionEvent.timestamp, ExecutionEvent.sequence) \
-            .all()
-
-    def set_topology_snapshot(self, run_id: str, topology: dict) -> bool:
+    def set_topology_snapshot(self, run_id: int, topology: dict) -> bool:
         """设置拓扑快照"""
         run = self.get_by_id(run_id)
         if not run:
@@ -160,15 +113,17 @@ class RunRepository:
         self.session.commit()
         return True
 
-    def delete(self, run_id: str) -> bool:
-        """删除运行记录及其关联事件"""
+    def delete(self, run_id: int) -> bool:
+        """删除运行记录"""
         run = self.get_by_id(run_id)
         if not run:
             return False
 
-        # 先删除关联的事件
-        self.session.query(ExecutionEvent).filter(ExecutionEvent.run_id == run_id).delete()
-        # 再删除运行记录
+        # NOTE: Events are now stored in Redis Stream, not MySQL.
+        # Redis Stream events will auto-expire after 24 hours (TTL set on run completion).
+        # For immediate cleanup, use EventStore.delete(run_id)
+
+        # 删除运行记录
         self.session.delete(run)
         self.session.commit()
         return True

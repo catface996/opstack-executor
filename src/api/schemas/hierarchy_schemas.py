@@ -23,8 +23,13 @@ class WorkerConfig(BaseModel):
     role: str = Field(..., min_length=1, max_length=200, description="角色描述")
     system_prompt: str = Field(..., min_length=1, description="系统提示词")
     user_message: Optional[str] = Field(default=None, description="预定义的用户消息")
-    tools: List[str] = Field(default=[], description="工具列表")
+    tools: Optional[List[str]] = Field(default=[], description="工具列表，可以为 null 或空数组")
     llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 配置")
+
+    def model_post_init(self, __context):
+        # 将 null 转换为空列表
+        if self.tools is None:
+            object.__setattr__(self, 'tools', [])
 
 
 class TeamConfig(BaseModel):

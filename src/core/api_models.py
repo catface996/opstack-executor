@@ -38,6 +38,7 @@ class EventCategory(str, Enum):
     LLM = "llm"              # LLM 相关事件
     DISPATCH = "dispatch"    # 调度事件
     SYSTEM = "system"        # 系统事件
+    AGENT = "agent"          # Agent 级别事件（用于串行化控制）
 
 
 class EventAction(str, Enum):
@@ -194,6 +195,7 @@ class WorkerConfigRequest:
     tools: List[str] = field(default_factory=list)
     temperature: float = 0.7
     max_tokens: int = 2048
+    model_id: Optional[str] = None  # LLM 模型 ID，如 gemini-2.0-flash
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -213,6 +215,7 @@ class TeamConfigRequest:
     share_context: bool = False
     temperature: float = 0.7
     max_tokens: int = 2048
+    model_id: Optional[str] = None  # Team Supervisor LLM 模型 ID
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -226,7 +229,8 @@ class TeamConfigRequest:
             'prevent_duplicate': self.prevent_duplicate,
             'share_context': self.share_context,
             'temperature': self.temperature,
-            'max_tokens': self.max_tokens
+            'max_tokens': self.max_tokens,
+            'model_id': self.model_id
         }
 
 
@@ -242,6 +246,8 @@ class HierarchyConfigRequest:
     execution_mode: ExecutionMode = ExecutionMode.SEQUENTIAL
     global_temperature: float = 0.7
     global_max_tokens: int = 2048
+    global_model_id: Optional[str] = None  # Global Supervisor LLM 模型 ID
+    run_id: Optional[int] = None  # 运行 ID，用于跨线程回调查找
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -254,7 +260,9 @@ class HierarchyConfigRequest:
             'enable_context_sharing': self.enable_context_sharing,
             'execution_mode': self.execution_mode.value,
             'global_temperature': self.global_temperature,
-            'global_max_tokens': self.global_max_tokens
+            'global_max_tokens': self.global_max_tokens,
+            'global_model_id': self.global_model_id,
+            'run_id': self.run_id
         }
 
 
@@ -312,6 +320,7 @@ def parse_worker_config(data: Dict[str, Any]) -> WorkerConfigRequest:
     llm_config = data.get('llm_config') or {}
     temperature = llm_config.get('temperature') or data.get('temperature', 0.7)
     max_tokens = llm_config.get('max_tokens') or data.get('max_tokens', 2048)
+    model_id = llm_config.get('model_id') or data.get('model_id')
 
     return WorkerConfigRequest(
         name=data['name'],
@@ -322,7 +331,8 @@ def parse_worker_config(data: Dict[str, Any]) -> WorkerConfigRequest:
         user_message=data.get('user_message'),
         tools=data.get('tools', []),
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        model_id=model_id
     )
 
 
@@ -338,6 +348,7 @@ def parse_team_config(data: Dict[str, Any]) -> TeamConfigRequest:
     llm_config = team_agent.get('llm_config') or {}
     temperature = llm_config.get('temperature') or data.get('temperature', 0.7)
     max_tokens = llm_config.get('max_tokens') or data.get('max_tokens', 2048)
+    model_id = llm_config.get('model_id') or data.get('model_id')
 
     return TeamConfigRequest(
         name=data['name'],
@@ -349,7 +360,8 @@ def parse_team_config(data: Dict[str, Any]) -> TeamConfigRequest:
         prevent_duplicate=data.get('prevent_duplicate', True),
         share_context=data.get('share_context', False),
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        model_id=model_id
     )
 
 
@@ -368,6 +380,7 @@ def parse_hierarchy_config(data: Dict[str, Any]) -> HierarchyConfigRequest:
     llm_config = global_agent.get('llm_config') or {}
     global_temperature = llm_config.get('temperature') or data.get('global_temperature', 0.7)
     global_max_tokens = llm_config.get('max_tokens') or data.get('global_max_tokens', 2048)
+    global_model_id = llm_config.get('model_id') or data.get('global_model_id')
 
     return HierarchyConfigRequest(
         global_prompt=global_prompt,
@@ -378,5 +391,7 @@ def parse_hierarchy_config(data: Dict[str, Any]) -> HierarchyConfigRequest:
         enable_context_sharing=data.get('enable_context_sharing', False),
         execution_mode=execution_mode,
         global_temperature=global_temperature,
-        global_max_tokens=global_max_tokens
+        global_max_tokens=global_max_tokens,
+        global_model_id=global_model_id,
+        run_id=data.get('run_id')
     )

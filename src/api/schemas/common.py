@@ -26,8 +26,13 @@ class PaginationRequest(BaseModel):
 
 
 class IdRequest(BaseModel):
-    """ID 请求"""
+    """ID 请求 (字符串类型)"""
     id: str = Field(..., description="资源 ID")
+
+
+class RunIdRequest(BaseModel):
+    """Run ID 请求 (整数类型)"""
+    id: int = Field(..., description="运行 ID")
 
 
 class PaginatedResponse(BaseModel, Generic[T]):

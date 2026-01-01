@@ -14,6 +14,9 @@ from typing import List, Optional
 class OutputFormatter:
     """输出格式化器 - 统一管理所有输出样式"""
 
+    # 全局开关：是否启用 print 输出（设为 False 禁用所有状态输出，只保留 LLM 输出）
+    PRINT_ENABLED = False
+
     # 分隔符长度
     SEPARATOR_LENGTH = 70
 
@@ -103,6 +106,8 @@ class OutputFormatter:
     @staticmethod
     def print_worker_start(name: str, task: str, team_name: str = None, agent_id: str = None):
         """打印 Worker 开始工作"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('worker', name, team_name, agent_id=agent_id)
         print(f"\n{OutputFormatter.SEPARATOR_WORKER * OutputFormatter.SEPARATOR_LENGTH}")
         print(f"{label} 🔬 开始工作")
@@ -113,13 +118,17 @@ class OutputFormatter:
     @staticmethod
     def print_worker_thinking(name: str, team_name: str = None, agent_id: str = None):
         """打印 Worker 思考过程标题"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('worker', name, team_name, agent_id=agent_id)
-        print(f"{label} 💭 思考中...\n")
+        print(f"\n{label} 💭 思考中...\n")
         print(OutputFormatter.SEPARATOR_SECTION * OutputFormatter.SEPARATOR_LENGTH + "\n")
 
     @staticmethod
     def print_worker_complete(name: str, team_name: str = None, agent_id: str = None):
         """打印 Worker 完成工作"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('worker', name, team_name, agent_id=agent_id)
         print("\n" + OutputFormatter.SEPARATOR_SECTION * OutputFormatter.SEPARATOR_LENGTH)
         print(f"\n{label} ✅ 完成工作\n")
@@ -127,6 +136,8 @@ class OutputFormatter:
     @staticmethod
     def print_worker_warning(message: str):
         """打印 Worker 警告信息"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         print(f"\n{OutputFormatter.SEPARATOR_WORKER * OutputFormatter.SEPARATOR_LENGTH}")
         print(message)
         print(f"{OutputFormatter.SEPARATOR_WORKER * OutputFormatter.SEPARATOR_LENGTH}\n")
@@ -134,12 +145,16 @@ class OutputFormatter:
     @staticmethod
     def print_worker_duplicate_task_warning(name: str, team_name: str = None):
         """打印 Worker 重复任务警告（简化版）"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('worker', name, team_name)
         print(f"\n⚠️ {label} 该专家已经处理过此任务，请直接使用之前的结果\n")
 
     @staticmethod
     def print_worker_error(message: str):
         """打印 Worker 错误信息"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         print(f"\n❌ {message}\n")
     
     # ========================================================================
@@ -149,9 +164,11 @@ class OutputFormatter:
     @staticmethod
     def print_team_start(name: str, call_id: str, task: str, workers: List[str], agent_id: str = None):
         """打印 Team Supervisor 开始协调"""
-        label = OutputFormatter.format_source_label('team_supervisor', name, agent_id=agent_id)
-        # 设置当前团队上下文
+        # 设置当前团队上下文（不受 PRINT_ENABLED 影响）
         OutputFormatter.set_current_team(name)
+        if not OutputFormatter.PRINT_ENABLED:
+            return
+        label = OutputFormatter.format_source_label('team_supervisor', name, agent_id=agent_id)
         print(f"\n{OutputFormatter.SEPARATOR_TEAM * OutputFormatter.SEPARATOR_LENGTH}")
         print(f"{label} 👔 开始协调")
         print(OutputFormatter.SEPARATOR_TEAM * OutputFormatter.SEPARATOR_LENGTH)
@@ -163,28 +180,36 @@ class OutputFormatter:
     @staticmethod
     def print_team_thinking(name: str, agent_id: str = None):
         """打印 Team Supervisor 思考过程标题"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('team_supervisor', name, agent_id=agent_id)
-        print(f"{label} 💭 思考中...\n")
+        print(f"\n{label} 💭 思考中...\n")
         print(OutputFormatter.SEPARATOR_SECTION * OutputFormatter.SEPARATOR_LENGTH + "\n")
 
     @staticmethod
     def print_team_complete(name: str, agent_id: str = None):
         """打印 Team Supervisor 完成协调"""
+        # 清除团队上下文（不受 PRINT_ENABLED 影响）
+        OutputFormatter.set_current_team(None)
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('team_supervisor', name, agent_id=agent_id)
         print("\n" + OutputFormatter.SEPARATOR_SECTION * OutputFormatter.SEPARATOR_LENGTH)
         print(f"\n{label} ✅ 完成协调\n")
-        # 清除团队上下文
-        OutputFormatter.set_current_team(None)
 
     @staticmethod
     def print_team_summary(name: str, agent_id: str = None):
         """打印 Team Supervisor 总结"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('team_supervisor', name, agent_id=agent_id)
         print(f"\n{label} 📝 总结:\n")
 
     @staticmethod
     def print_team_warning(message: str):
         """打印 Team Supervisor 警告信息"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         print(f"\n{OutputFormatter.SEPARATOR_TEAM * OutputFormatter.SEPARATOR_LENGTH}")
         print(message)
         print(f"{OutputFormatter.SEPARATOR_TEAM * OutputFormatter.SEPARATOR_LENGTH}\n")
@@ -192,16 +217,22 @@ class OutputFormatter:
     @staticmethod
     def print_team_error(message: str):
         """打印 Team Supervisor 错误信息"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         print(f"\n❌ {message}\n")
 
     @staticmethod
     def print_team_duplicate_warning(message: str):
         """打印 Team Supervisor 重复调用警告"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         print(f"\n⚠️  {message}\n")
 
     @staticmethod
     def print_team_dispatch(team_name: str, worker_name: str, agent_id: str = None):
         """打印 Team Supervisor 调度 Worker"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('team_supervisor', team_name, agent_id=agent_id)
         print(f"\n{label} 📤 DISPATCH: 调度 [{worker_name}]")
         print("")
@@ -213,6 +244,8 @@ class OutputFormatter:
     @staticmethod
     def print_global_start(task: str, agent_id: str = None):
         """打印 Global Supervisor 开始分析"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('global', agent_id=agent_id)
         print(f"\n{OutputFormatter.SEPARATOR_GLOBAL * OutputFormatter.SEPARATOR_LENGTH}")
         print(f"{label} 🎯 开始分析任务")
@@ -223,13 +256,17 @@ class OutputFormatter:
     @staticmethod
     def print_global_thinking(agent_id: str = None):
         """打印 Global Supervisor 思考过程标题"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('global', agent_id=agent_id)
-        print(f"{label} 💭 思考中...\n")
+        print(f"\n{label} 💭 思考中...\n")
         print(OutputFormatter.SEPARATOR_SECTION * OutputFormatter.SEPARATOR_LENGTH + "\n")
 
     @staticmethod
     def print_global_dispatch(team_name: str, reason: str = "", agent_id: str = None):
         """打印 Global Supervisor 调度团队"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('global', agent_id=agent_id)
         print(f"\n{label} 📤 DISPATCH: 调度 [{team_name}]")
         if reason:
@@ -239,12 +276,16 @@ class OutputFormatter:
     @staticmethod
     def print_global_summary(agent_id: str = None):
         """打印 Global Supervisor 总结"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('global', agent_id=agent_id)
         print(f"\n{label} 📝 SYNTHESIS: 总结所有团队结果...\n")
 
     @staticmethod
     def print_global_complete(agent_id: str = None):
         """打印 Global Supervisor 完成分析"""
+        if not OutputFormatter.PRINT_ENABLED:
+            return
         label = OutputFormatter.format_source_label('global', agent_id=agent_id)
         print("\n" + OutputFormatter.SEPARATOR_GLOBAL * OutputFormatter.SEPARATOR_LENGTH)
         print(f"\n{label} ✅ 完成任务\n")

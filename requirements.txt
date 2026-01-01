@@ -30,3 +30,6 @@ cryptography>=42.0.0  # Required for MySQL 8.0 caching_sha2_password
 
 # Request validation
 pydantic>=2.5.0
+
+# Redis for event streaming
+redis>=5.0.0

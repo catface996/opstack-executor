@@ -98,7 +98,7 @@ def get_engine():
 
 def get_db_session() -> Session:
     """
-    获取数据库会话
+    获取数据库会话（scoped session，适用于 Flask 请求上下文）
 
     Returns:
         SQLAlchemy Session 实例
@@ -107,6 +107,22 @@ def get_db_session() -> Session:
     if db is None:
         init_db()
     return db()
+
+
+def create_new_session() -> Session:
+    """
+    创建新的独立数据库会话（适用于后台线程）
+
+    每次调用都会创建一个全新的 session，不与其他线程共享。
+    调用者负责在使用完后关闭 session。
+
+    Returns:
+        新的 SQLAlchemy Session 实例
+    """
+    global _SessionFactory
+    if _SessionFactory is None:
+        init_db()
+    return _SessionFactory()
 
 
 @contextmanager

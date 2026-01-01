@@ -7,13 +7,15 @@ from flasgger import swag_from
 from pydantic import ValidationError
 
 from ..schemas.run_schemas import (
-    RunStartRequest, RunListRequest, RunStreamRequest, RunCancelRequest
+    RunStartRequest, RunListRequest, RunStreamRequest, RunCancelRequest,
+    EventQueryRequest
 )
-from ..schemas.common import IdRequest, build_page_response
+from ..schemas.common import IdRequest, RunIdRequest, build_page_response
 from ...db.database import get_db_session, db
 from ...db.repositories import RunRepository
 from ...runner.run_manager import RunManager
 from ...streaming.sse_manager import SSERegistry
+from ...streaming.event_store import get_event_store
 
 runs_bp = Blueprint('runs', __name__)
 
@@ -200,7 +202,7 @@ def list_runs():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string', 'description': '运行唯一标识 (UUID)'}
+                'id': {'type': 'integer', 'description': '运行唯一标识'}
             }
         }
     }],
@@ -237,7 +239,7 @@ def get_run():
     """获取运行详情"""
     try:
         data = request.get_json() or {}
-        req = IdRequest(**data)
+        req = RunIdRequest(**data)
 
         repo = get_repo()
         run = repo.get_by_id(req.id)
@@ -336,7 +338,7 @@ data: {"run_id": "...", "timestamp": "...", "sequence": 123, "source": {...}, "e
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string', 'description': '运行 ID'}
+                'id': {'type': 'integer', 'description': '运行 ID'}
             }
         }
     }],
@@ -364,6 +366,16 @@ def stream_run():
         registry = SSERegistry.get_instance()
         sse_manager = registry.get(req.id)
 
+        # 获取 Last-Event-ID 头（用于断线重连）
+        last_event_id = request.headers.get('Last-Event-ID')
+
+        # 调试日志
+        print(f"[stream] 请求 run_id: {req.id}", flush=True)
+        print(f"[stream] Last-Event-ID: {last_event_id}", flush=True)
+        print(f"[stream] SSE Registry ID: {id(registry)}", flush=True)
+        print(f"[stream] 已注册的 run_ids: {registry.get_all_run_ids()}", flush=True)
+        print(f"[stream] SSE Manager 存在: {sse_manager is not None}", flush=True)
+
         if not sse_manager:
             # 检查运行是否存在
             repo = get_repo()
@@ -383,8 +395,15 @@ def stream_run():
                 'error': '运行流不可用，可能尚未开始或已结束'
             }), 404
 
-        # 返回 SSE 响应
-        return sse_manager.create_response()
+        # 如果有 Last-Event-ID，从 Redis 恢复历史事件
+        initial_events = None
+        if last_event_id:
+            event_store = get_event_store()
+            initial_events = event_store.get_events_after(req.id, last_event_id)
+            print(f"[stream] 恢复历史事件数量: {len(initial_events)}", flush=True)
+
+        # 返回 SSE 响应（带历史事件恢复）
+        return sse_manager.create_response(initial_events=initial_events)
 
     except ValidationError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -422,7 +441,7 @@ def stream_run():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string', 'description': '要取消的运行 ID (UUID)'}
+                'id': {'type': 'integer', 'description': '要取消的运行 ID'}
             }
         }
     }],
@@ -504,20 +523,32 @@ def cancel_run():
 @swag_from({
     'tags': ['Runs'],
     'summary': '获取运行事件列表',
-    'description': '''获取运行的所有事件记录（非流式）。
+    'description': '''获取运行的历史事件记录（从 Redis Stream 读取）。
 
 返回的事件结构与 SSE 流式事件一致，包含完整的事件历史。
+支持分页查询，通过 start_id、end_id 和 limit 参数控制。
 
 ## 事件结构
 
 每个事件包含以下字段:
-- `id`: 事件唯一标识
+- `id`: Redis Stream 消息 ID
 - `run_id`: 所属运行 ID
 - `timestamp`: 事件时间戳 (ISO 8601)
 - `sequence`: 序列号 (用于排序)
 - `source`: 来源信息 (agent_id, agent_type, agent_name, team_name)
 - `event`: 事件类型 (category, action)
 - `data`: 事件数据
+
+## 分页
+
+- 使用 `start_id` 和 `limit` 进行分页
+- 响应中的 `has_more` 表示是否还有更多数据
+- `next_id` 为下一页的起始 ID
+
+## 注意
+
+- 事件数据保留 24 小时
+- 超过 24 小时的运行可能返回空事件列表
 ''',
     'parameters': [{
         'name': 'body',
@@ -527,7 +558,10 @@ def cancel_run():
             'type': 'object',
             'required': ['id'],
             'properties': {
-                'id': {'type': 'string', 'description': '运行 ID'}
+                'id': {'type': 'integer', 'description': '运行 ID'},
+                'start_id': {'type': 'string', 'default': '-', 'description': '起始 ID，"-" 表示最早'},
+                'end_id': {'type': 'string', 'default': '+', 'description': '结束 ID，"+" 表示最新'},
+                'limit': {'type': 'integer', 'default': 1000, 'description': '最大返回数量 (1-10000)'}
             }
         }
     }],
@@ -541,19 +575,19 @@ def cancel_run():
                     'data': {
                         'type': 'object',
                         'properties': {
-                            'run_id': {'type': 'string'},
-                            'status': {'type': 'string', 'enum': ['pending', 'running', 'completed', 'failed', 'cancelled']},
+                            'run_id': {'type': 'integer'},
                             'events': {
                                 'type': 'array',
                                 'items': {
                                     'type': 'object',
                                     'properties': {
-                                        'id': {'type': 'string'},
-                                        'run_id': {'type': 'string'},
+                                        'id': {'type': 'string', 'description': 'Redis Stream 消息 ID'},
+                                        'run_id': {'type': 'integer'},
                                         'timestamp': {'type': 'string', 'format': 'date-time'},
                                         'sequence': {'type': 'integer'},
                                         'source': {
                                             'type': 'object',
+                                            'nullable': True,
                                             'properties': {
                                                 'agent_id': {'type': 'string'},
                                                 'agent_type': {'type': 'string', 'enum': ['global_supervisor', 'team_supervisor', 'worker']},
@@ -571,37 +605,103 @@ def cancel_run():
                                         'data': {'type': 'object'}
                                     }
                                 }
-                            }
+                            },
+                            'count': {'type': 'integer', 'description': '返回的事件数量'},
+                            'has_more': {'type': 'boolean', 'description': '是否还有更多事件'},
+                            'next_id': {'type': 'string', 'nullable': True, 'description': '下一页起始 ID'}
                         }
                     }
                 }
             }
         },
-        404: {'description': '运行不存在'}
+        404: {'description': '运行不存在'},
+        410: {'description': '运行事件已过期'}
     }
 })
 def get_run_events():
-    """获取运行事件列表"""
+    """获取运行事件列表（从 Redis Stream）"""
     try:
         data = request.get_json() or {}
-        req = IdRequest(**data)
+        req = EventQueryRequest(**data)
 
+        # 检查运行是否存在
         repo = get_repo()
         run = repo.get_by_id(req.id)
 
         if not run:
-            return jsonify({'success': False, 'error': '运行记录不存在'}), 404
+            return jsonify({
+                'success': False,
+                'code': 'RUN_NOT_FOUND',
+                'error': '运行记录不存在'
+            }), 404
 
-        events = repo.get_events(req.id)
+        # 从 Redis Stream 获取事件
+        event_store = get_event_store()
+
+        # 检查 Stream 是否存在
+        if not event_store.exists(req.id):
+            # Stream 不存在，可能已过期或从未产生事件
+            if run.status in ('completed', 'failed', 'cancelled'):
+                return jsonify({
+                    'success': False,
+                    'code': 'RUN_EXPIRED',
+                    'error': '运行事件已过期或不存在'
+                }), 410
+
+            # 运行尚未产生事件
+            return jsonify({
+                'success': True,
+                'data': {
+                    'run_id': req.id,
+                    'events': [],
+                    'count': 0,
+                    'has_more': False,
+                    'next_id': None
+                }
+            })
+
+        # 获取事件（多取一条用于判断 has_more）
+        fetch_count = req.limit + 1 if req.limit else None
+        events = event_store.get_events(
+            run_id=req.id,
+            start_id=req.start_id,
+            end_id=req.end_id,
+            count=fetch_count
+        )
+
+        # 判断是否有更多数据
+        has_more = len(events) > req.limit if req.limit else False
+        if has_more:
+            events = events[:req.limit]
+
+        # 获取下一页起始 ID
+        next_id = events[-1].id if has_more and events else None
+
+        # 转换为响应格式
+        event_list = [
+            {
+                'id': e.id,
+                'run_id': e.run_id,
+                'timestamp': e.timestamp,
+                'sequence': e.sequence,
+                'source': e.source,
+                'event': e.event,
+                'data': e.data
+            }
+            for e in events
+        ]
 
         return jsonify({
             'success': True,
             'data': {
                 'run_id': req.id,
-                'status': run.status,
-                'events': [e.to_dict() for e in events]
+                'events': event_list,
+                'count': len(event_list),
+                'has_more': has_more,
+                'next_id': next_id
             }
         })
+
     except ValidationError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:

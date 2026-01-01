@@ -22,17 +22,17 @@ class RunListRequest(PaginationRequest):
 
 class RunStreamRequest(BaseModel):
     """流式获取运行事件请求"""
-    id: str = Field(..., description="运行 ID")
+    id: int = Field(..., description="运行 ID")
 
 
 class RunCancelRequest(BaseModel):
     """取消运行请求"""
-    id: str = Field(..., description="运行 ID")
+    id: int = Field(..., description="运行 ID")
 
 
 class EventResponse(BaseModel):
     """事件响应"""
-    id: str
+    id: int
     event_type: str
     timestamp: Optional[str]
     data: Optional[Any]
@@ -45,7 +45,7 @@ class EventResponse(BaseModel):
 
 class RunResponse(BaseModel):
     """运行记录响应"""
-    id: str
+    id: int
     hierarchy_id: str
     task: str
     status: str
@@ -68,9 +68,37 @@ class RunDetailResponse(RunResponse):
 
 class RunStartResponse(BaseModel):
     """启动运行响应"""
-    id: str
+    id: int
     hierarchy_id: str
     task: str
     status: str
     stream_url: str
     created_at: Optional[str]
+
+
+class EventQueryRequest(BaseModel):
+    """历史事件查询请求"""
+    id: int = Field(..., description="运行 ID")
+    start_id: Optional[str] = Field(default='-', description="起始 ID，'-' 表示最早")
+    end_id: Optional[str] = Field(default='+', description="结束 ID，'+' 表示最新")
+    limit: Optional[int] = Field(default=1000, ge=1, le=10000, description="最大返回数量")
+
+
+class StreamEventItem(BaseModel):
+    """流事件项"""
+    id: str = Field(..., description="Redis Stream 消息 ID")
+    run_id: int = Field(..., description="运行 ID")
+    timestamp: str = Field(..., description="ISO 8601 时间戳")
+    sequence: int = Field(..., description="序列号")
+    source: Optional[dict] = Field(default=None, description="事件来源")
+    event: dict = Field(..., description="事件类型 {category, action}")
+    data: dict = Field(default_factory=dict, description="事件数据")
+
+
+class EventListResponse(BaseModel):
+    """历史事件列表响应"""
+    run_id: int = Field(..., description="运行 ID")
+    events: List[StreamEventItem] = Field(default_factory=list, description="事件列表")
+    count: int = Field(..., description="返回的事件数量")
+    has_more: bool = Field(default=False, description="是否还有更多事件")
+    next_id: Optional[str] = Field(default=None, description="下一页起始 ID")
