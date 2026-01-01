@@ -23,7 +23,7 @@ def get_database_url() -> str:
 
     支持环境变量配置:
     - DATABASE_URL: 完整的数据库 URL
-    - DB_TYPE: 数据库类型 (postgresql/mysql)
+    - DB_TYPE: 数据库类型 (mysql/postgresql)
     - DB_HOST: 数据库主机
     - DB_PORT: 数据库端口
     - DB_NAME: 数据库名称
@@ -36,19 +36,18 @@ def get_database_url() -> str:
         return database_url
 
     # 从单独的环境变量构建 URL
-    db_type = os.environ.get('DB_TYPE', 'postgresql')
+    db_type = os.environ.get('DB_TYPE', 'mysql')
     db_host = os.environ.get('DB_HOST', 'localhost')
-    db_port = os.environ.get('DB_PORT', '5432')
+    db_port = os.environ.get('DB_PORT', '3306')
     db_name = os.environ.get('DB_NAME', 'hierarchical_agents')
-    db_user = os.environ.get('DB_USER', 'postgres')
+    db_user = os.environ.get('DB_USER', 'root')
     db_password = os.environ.get('DB_PASSWORD', '')
 
-    if db_type == 'mysql':
-        # 使用 pymysql 驱动（更易安装）
-        return f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
-    else:
-        # 默认 PostgreSQL
+    if db_type == 'postgresql':
         return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    else:
+        # 默认 MySQL，使用 pymysql 驱动
+        return f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
 
 
 def init_db(app=None, database_url: str = None):
