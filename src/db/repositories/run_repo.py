@@ -8,7 +8,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..models import ExecutionRun, ExecutionEvent, RunStatus
+from ..models import ExecutionRun, RunStatus
 
 
 class RunRepository:

@@ -30,6 +30,41 @@ DATABASE_URL="mysql+pymysql://root:root123@localhost:3306/aiops_local"
 
 ---
 
+## Redis (Event Streaming)
+
+### Redis Type: Redis Stream
+
+- **Must use Redis** for real-time event streaming and persistence
+- Events are stored in Redis Stream with automatic TTL (24 hours)
+- Local development uses Docker Redis container
+
+### Local Development Redis Configuration
+
+```bash
+# Docker Redis container
+Host: localhost
+Port: 6379
+Database: 0
+
+# Connection URL format
+REDIS_URL="redis://localhost:6379/0"
+```
+
+### Why Redis Stream
+
+1. Low-latency real-time event delivery (< 100ms)
+2. Built-in support for reconnection recovery via Last-Event-ID
+3. Automatic event ordering with Redis message IDs
+4. Memory-efficient with MAXLEN trimming (~10000 events per run)
+
+### Graceful Degradation
+
+- Redis failures should NOT block the main execution flow
+- Events are dual-written: Redis Stream (persistence) + memory queue (low-latency SSE)
+- If Redis is unavailable, SSE streaming continues via memory queue only
+
+---
+
 ## Development Environment
 
 ### Running the Server Locally

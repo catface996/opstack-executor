@@ -8,7 +8,6 @@ from .database import db, init_db, get_db_session
 from .models import (
     HierarchyTeam,
     ExecutionRun,
-    ExecutionEvent,
     RunStatus
 )
 
@@ -18,6 +17,5 @@ __all__ = [
     'get_db_session',
     'HierarchyTeam',
     'ExecutionRun',
-    'ExecutionEvent',
     'RunStatus',
 ]
