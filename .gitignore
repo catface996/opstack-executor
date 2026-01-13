@@ -113,3 +113,8 @@ dmypy.json
 
 # IDE/Editor
 .kiro/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
